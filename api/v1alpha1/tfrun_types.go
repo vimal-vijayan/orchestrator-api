@@ -56,20 +56,20 @@ type TfBackend struct {
 
 type CloudBackend struct {
 	//+kubebuilder:validation:Required
-	Hostname     string `json:"hostname"`
+	Hostname string `json:"hostname"`
 	//+kubebuilder:validation:Required
 	Organization string `json:"organization"`
 	//+kubebuilder:validation:Required
-	Workspace    string `json:"workspace"`
+	Workspace string `json:"workspace"`
 }
 
 type StorageAccountBackend struct {
 	//+kubebuilder:validation:Required
-	AccountName   string `json:"accountName"`
+	AccountName string `json:"accountName"`
 	//+kubebuilder:validation:Required
 	ContainerName string `json:"containerName"`
 	//+kubebuilder:validation:Required
-	Key           string `json:"key"`
+	Key string `json:"key"`
 }
 
 type TfProviderSpec struct {
