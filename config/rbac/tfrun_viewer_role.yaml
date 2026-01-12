@@ -8,7 +8,7 @@ metadata:
   name: tfrun-viewer-role
 rules:
 - apiGroups:
-  - infra.infra.essity.com
+  - infra.essity.com
   resources:
   - tfruns
   verbs:
@@ -16,7 +16,7 @@ rules:
   - list
   - watch
 - apiGroups:
-  - infra.infra.essity.com
+  - infra.essity.com
   resources:
   - tfruns/status
   verbs:

@@ -1,4 +1,4 @@
-apiVersion: infra.infra.essity.com/v1alpha1
+apiVersion: infra.essity.com/v1alpha1
 kind: TfRun
 metadata:
   labels:

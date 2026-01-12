@@ -8,7 +8,7 @@ metadata:
   name: tfrun-editor-role
 rules:
 - apiGroups:
-  - infra.infra.essity.com
+  - infra.essity.com
   resources:
   - tfruns
   verbs:
@@ -20,7 +20,7 @@ rules:
   - update
   - watch
 - apiGroups:
-  - infra.infra.essity.com
+  - infra.essity.com
   resources:
   - tfruns/status
   verbs:

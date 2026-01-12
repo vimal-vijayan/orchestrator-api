@@ -2,7 +2,7 @@
 # This file is used to track the info used to scaffold your project
 # and allow the plugins properly work.
 # More info: https://book.kubebuilder.io/reference/project-config.html
-domain: infra.essity.com
+domain: essity.com
 layout:
 - go.kubebuilder.io/v4
 projectName: orchestrator-api
@@ -12,7 +12,7 @@ resources:
     crdVersion: v1
     namespaced: true
   controller: true
-  domain: infra.essity.com
+  domain: essity.com
   group: infra
   kind: TfRun
   path: infra.essity.com/orchstrator-api/api/v1alpha1

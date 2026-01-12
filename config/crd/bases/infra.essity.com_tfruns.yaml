@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.16.1
-  name: tfruns.infra.infra.essity.com
+  name: tfruns.infra.essity.com
 spec:
-  group: infra.infra.essity.com
+  group: infra.essity.com
   names:
     kind: TfRun
     listKind: TfRunList
@@ -45,13 +45,33 @@ spec:
                 type: object
               backend:
                 properties:
-                  type:
+                  cloud:
                     description: S3 backend configuration
-                    enum:
-                    - s3
-                    - storageaccount
-                    - cloud
-                    type: string
+                    properties:
+                      hostname:
+                        type: string
+                      organization:
+                        type: string
+                      workspace:
+                        type: string
+                    required:
+                    - hostname
+                    - organization
+                    - workspace
+                    type: object
+                  storageAccount:
+                    properties:
+                      accountName:
+                        type: string
+                      containerName:
+                        type: string
+                      key:
+                        type: string
+                    required:
+                    - accountName
+                    - containerName
+                    - key
+                    type: object
                 type: object
               forProvider:
                 properties:

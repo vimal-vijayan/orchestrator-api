@@ -49,8 +49,20 @@ type TfRunStatus struct {
 type TfBackend struct {
 	// S3 backend configuration
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:validation:Enum=s3;storageaccount;cloud
-	Type string `json:"type,omitempty"`
+	Cloud          CloudBackend          `json:"cloud,omitempty"`
+	StorageAccount StorageAccountBackend `json:"storageAccount,omitempty"`
+}
+
+type CloudBackend struct {
+	Hostname     string `json:"hostname"`
+	Organization string `json:"organization"`
+	Workspace    string `json:"workspace"`
+}
+
+type StorageAccountBackend struct {
+	AccountName   string `json:"accountName"`
+	ContainerName string `json:"containerName"`
+	Key           string `json:"key"`
 }
 
 type TfProviderSpec struct {
