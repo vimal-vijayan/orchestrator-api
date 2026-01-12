@@ -43,6 +43,16 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              backend:
+                properties:
+                  type:
+                    description: S3 backend configuration
+                    enum:
+                    - s3
+                    - storageaccount
+                    - cloud
+                    type: string
+                type: object
               forProvider:
                 properties:
                   credentialsSecretRef:
@@ -54,9 +64,17 @@ spec:
                 description: TfSource defines the source of the Terraform configuration
                 properties:
                   module:
+                    description: Module is the git URL of the Terraform module
+                    type: string
+                  path:
+                    description: Path is the path within the repository to the Terraform
+                      configuration
                     type: string
                   ref:
+                    description: Ref is the git reference (branch, tag, commit)
                     type: string
+                required:
+                - module
                 type: object
               vars:
                 additionalProperties:
@@ -64,6 +82,7 @@ spec:
                 type: object
             required:
             - forProvider
+            - source
             type: object
           status:
             description: TfRunStatus defines the observed state of TfRun
