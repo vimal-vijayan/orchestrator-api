@@ -25,17 +25,38 @@ import (
 
 // TfRunSpec defines the desired state of TfRun
 type TfRunSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	//+kubebuilder:validation:Required
+	ForProvider TfProviderSpec `json:"forProvider"`
+	//+kubebuilder:validation:Optional
+	Source TfSource `json:"source,omitempty"`
+	//+kubebuilder:validation:Optional
+	Arguments map[string]string `json:"arguments,omitempty"`
+	//+kubebuilder:validation:Optional
+	Vars []Vars `json:"vars,omitempty"`
+}
 
-	// Foo is an example field of TfRun. Edit tfrun_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+type Vars struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // TfRunStatus defines the observed state of TfRun
 type TfRunStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+	ObservedGeneration int64  `json:"observedGeneration,omitempty"`
+	State              string `json:"state,omitempty"`
+	Message            string `json:"message,omitempty"`
+}
+
+type TfProviderSpec struct {
+	CredentialsSecretRef string `json:"credentialsSecretRef"`
+}
+
+// TfSource defines the source of the Terraform configuration
+type TfSource struct {
+	Module string `json:"module,omitempty"`
+	Ref    string `json:"ref,omitempty"`
 }
 
 // +kubebuilder:object:root=true

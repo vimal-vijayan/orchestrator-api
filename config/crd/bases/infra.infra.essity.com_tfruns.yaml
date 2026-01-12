@@ -39,13 +39,53 @@ spec:
           spec:
             description: TfRunSpec defines the desired state of TfRun
             properties:
-              foo:
-                description: Foo is an example field of TfRun. Edit tfrun_types.go
-                  to remove/update
-                type: string
+              arguments:
+                additionalProperties:
+                  type: string
+                type: object
+              forProvider:
+                properties:
+                  credentialsSecretRef:
+                    type: string
+                required:
+                - credentialsSecretRef
+                type: object
+              source:
+                description: TfSource defines the source of the Terraform configuration
+                properties:
+                  module:
+                    type: string
+                  ref:
+                    type: string
+                type: object
+              vars:
+                items:
+                  properties:
+                    key:
+                      type: string
+                    value:
+                      type: string
+                  required:
+                  - key
+                  - value
+                  type: object
+                type: array
+            required:
+            - forProvider
             type: object
           status:
             description: TfRunStatus defines the observed state of TfRun
+            properties:
+              message:
+                type: string
+              observedGeneration:
+                description: |-
+                  INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
+                  Important: Run "make" to regenerate code after modifying this file
+                format: int64
+                type: integer
+              state:
+                type: string
             type: object
         type: object
     served: true
