@@ -49,19 +49,26 @@ type TfRunStatus struct {
 type TfBackend struct {
 	// S3 backend configuration
 	// +kubebuilder:validation:Optional
-	Cloud          CloudBackend          `json:"cloud,omitempty"`
-	StorageAccount StorageAccountBackend `json:"storageAccount,omitempty"`
+	Cloud *CloudBackend `json:"cloud,omitempty"`
+	// +kubebuilder:validation:Optional
+	StorageAccount *StorageAccountBackend `json:"storageAccount,omitempty"`
 }
 
 type CloudBackend struct {
+	//+kubebuilder:validation:Required
 	Hostname     string `json:"hostname"`
+	//+kubebuilder:validation:Required
 	Organization string `json:"organization"`
+	//+kubebuilder:validation:Required
 	Workspace    string `json:"workspace"`
 }
 
 type StorageAccountBackend struct {
+	//+kubebuilder:validation:Required
 	AccountName   string `json:"accountName"`
+	//+kubebuilder:validation:Required
 	ContainerName string `json:"containerName"`
+	//+kubebuilder:validation:Required
 	Key           string `json:"key"`
 }
 
