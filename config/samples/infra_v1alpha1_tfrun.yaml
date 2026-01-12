@@ -1,0 +1,9 @@
+apiVersion: infra.infra.essity.com/v1alpha1
+kind: TfRun
+metadata:
+  labels:
+    app.kubernetes.io/name: orchestrator-api
+    app.kubernetes.io/managed-by: kustomize
+  name: tfrun-sample
+spec:
+  # TODO(user): Add fields here

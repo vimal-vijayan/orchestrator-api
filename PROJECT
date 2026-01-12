@@ -7,4 +7,14 @@ layout:
 - go.kubebuilder.io/v4
 projectName: orchestrator-api
 repo: infra.essity.com/orchstrator-api
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: infra.essity.com
+  group: infra
+  kind: TfRun
+  path: infra.essity.com/orchstrator-api/api/v1alpha1
+  version: v1alpha1
 version: "3"

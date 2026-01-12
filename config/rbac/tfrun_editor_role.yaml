@@ -1,8 +1,11 @@
----
+# permissions for end users to edit tfruns.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: manager-role
+  labels:
+    app.kubernetes.io/name: orchestrator-api
+    app.kubernetes.io/managed-by: kustomize
+  name: tfrun-editor-role
 rules:
 - apiGroups:
   - infra.infra.essity.com
@@ -19,14 +22,6 @@ rules:
 - apiGroups:
   - infra.infra.essity.com
   resources:
-  - tfruns/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - infra.infra.essity.com
-  resources:
   - tfruns/status
   verbs:
   - get
-  - patch
-  - update
