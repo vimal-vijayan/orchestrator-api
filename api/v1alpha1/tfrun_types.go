@@ -27,8 +27,10 @@ import (
 type TfRunSpec struct {
 	//+kubebuilder:validation:Required
 	ForProvider TfProviderSpec `json:"forProvider"`
-	//+kubebuilder:validation:Optional
+	//+kubebuilder:validation:Required
 	Source TfSource `json:"source,omitempty"`
+	//+kubebuilder:validation:Optional
+	Backend TfBackend `json:"backend,omitempty"`
 	//+kubebuilder:validation:Optional
 	Arguments map[string]string `json:"arguments,omitempty"`
 	//+kubebuilder:validation:Optional
@@ -44,14 +46,27 @@ type TfRunStatus struct {
 	Message            string `json:"message,omitempty"`
 }
 
+type TfBackend struct {
+	// S3 backend configuration
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=s3;storageaccount;cloud
+	Type  string       `json:"type,omitempty"`
+}
+
 type TfProviderSpec struct {
 	CredentialsSecretRef string `json:"credentialsSecretRef"`
 }
 
 // TfSource defines the source of the Terraform configuration
 type TfSource struct {
+	// Module is the git URL of the Terraform module
+	// +kubebuilder:validation:Required
 	Module string `json:"module,omitempty"`
+	// Ref is the git reference (branch, tag, commit)
+	// +kubebuilder:validation:Optional
 	Ref    string `json:"ref,omitempty"`
+	// Path is the path within the repository to the Terraform configuration
+	// +kubebuilder:validation:Optional
 	Path   string `json:"path,omitempty"`
 }
 
