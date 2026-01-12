@@ -52,6 +52,7 @@ type TfProviderSpec struct {
 type TfSource struct {
 	Module string `json:"module,omitempty"`
 	Ref    string `json:"ref,omitempty"`
+	Path   string `json:"path,omitempty"`
 }
 
 // +kubebuilder:object:root=true
