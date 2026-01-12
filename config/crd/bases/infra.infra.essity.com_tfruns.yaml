@@ -59,17 +59,9 @@ spec:
                     type: string
                 type: object
               vars:
-                items:
-                  properties:
-                    key:
-                      type: string
-                    value:
-                      type: string
-                  required:
-                  - key
-                  - value
-                  type: object
-                type: array
+                additionalProperties:
+                  type: string
+                type: object
             required:
             - forProvider
             type: object

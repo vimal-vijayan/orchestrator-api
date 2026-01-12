@@ -32,12 +32,7 @@ type TfRunSpec struct {
 	//+kubebuilder:validation:Optional
 	Arguments map[string]string `json:"arguments,omitempty"`
 	//+kubebuilder:validation:Optional
-	Vars []Vars `json:"vars,omitempty"`
-}
-
-type Vars struct {
-	Key   string `json:"key"`
-	Value string `json:"value"`
+	Vars map[string]string `json:"vars,omitempty"`
 }
 
 // TfRunStatus defines the observed state of TfRun
