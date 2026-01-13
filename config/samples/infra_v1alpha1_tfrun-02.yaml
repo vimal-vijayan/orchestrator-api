@@ -4,20 +4,19 @@ metadata:
   labels:
     app.kubernetes.io/name: orchestrator-api
     app.kubernetes.io/managed-by: kustomize
-  name: tfrun-sample
+  name: tfrun-sample-02
 spec:
   forProvider:
     credentialsSecretRef: tf-credentials
   source:
-    module: https://github.com/example/terraform-modules.git
-    ref: main
-    path: modules/network
+    module: https://github.com/vimal-vijayan/my-app.git
+    ref: refs/tags/v0.0.1
   backend:
     cloud:
       hostname: essity.scalr.io
-      organization: my-org
-      workspace: my-workspace
+      organization: cet-launchpad
+      workspace: demo-workspace-10
   arguments:
     autoApprove: "true"
   vars:
-    region: "eu-west-1"
+    name: "orchestrator-sample"

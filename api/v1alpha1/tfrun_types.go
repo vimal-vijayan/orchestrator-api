@@ -39,12 +39,27 @@ type TfRunSpec struct {
 
 // TfRunStatus defines the observed state of TfRun
 type TfRunStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// ObservedGeneration reflects the generation of the most recently observed TfRun
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
+	// Phase represents the current phase of the TerraformRun
 	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed
-	State   string `json:"state,omitempty"`
+	Phase string `json:"phase,omitempty"`
+
+	// ActiveJobName is the name of the currently running Job
+	ActiveJobName string `json:"activeJobName,omitempty"`
+
+	// LastSpecHash is the hash of the spec from the last successful run
+	LastSpecHash string `json:"lastSpecHash,omitempty"`
+
+	// LastRunTime is the timestamp of the last run
+	LastRunTime *metav1.Time `json:"lastRunTime,omitempty"`
+
+	// Message provides additional information about the current state
 	Message string `json:"message,omitempty"`
+
+	// Conditions represent the latest available observations of the TfRun's state
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
 type TfBackend struct {
