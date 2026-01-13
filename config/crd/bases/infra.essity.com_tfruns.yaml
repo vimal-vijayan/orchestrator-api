@@ -46,7 +46,11 @@ spec:
               backend:
                 properties:
                   cloud:
-                    description: S3 backend configuration
+                    default:
+                      hostname: essity.scalr.io
+                      organization: my-org
+                      workspace: my-workspace
+                    description: Cloud backend configuration
                     properties:
                       hostname:
                         type: string

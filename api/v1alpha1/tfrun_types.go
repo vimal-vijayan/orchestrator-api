@@ -41,14 +41,16 @@ type TfRunSpec struct {
 type TfRunStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-	ObservedGeneration int64  `json:"observedGeneration,omitempty"`
-	State              string `json:"state,omitempty"`
-	Message            string `json:"message,omitempty"`
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// +kubebuilder:validation:Enum=Pending;Running;Succeeded;Failed
+	State   string `json:"state,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 type TfBackend struct {
-	// S3 backend configuration
+	// Cloud backend configuration
 	// +kubebuilder:validation:Optional
+	// +kubebuilder:default:={hostname:"essity.scalr.io", organization:"my-org", workspace:"my-workspace"}
 	Cloud *CloudBackend `json:"cloud,omitempty"`
 	// +kubebuilder:validation:Optional
 	StorageAccount *StorageAccountBackend `json:"storageAccount,omitempty"`

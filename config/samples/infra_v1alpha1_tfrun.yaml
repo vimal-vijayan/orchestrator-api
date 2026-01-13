@@ -6,4 +6,18 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: tfrun-sample
 spec:
-  # TODO(user): Add fields here
+  forProvider:
+    credentialsSecretRef: tf-credentials
+  source:
+    module: https://github.com/example/terraform-modules.git
+    ref: main
+    path: modules/network
+  backend:
+    cloud:
+      hostname: essity.scalr.io
+      organization: my-org
+      workspace: my-workspace
+  arguments:
+    autoApprove: "true"
+  vars:
+    region: "eu-west-1"
