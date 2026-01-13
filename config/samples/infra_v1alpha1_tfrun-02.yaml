@@ -10,12 +10,13 @@ spec:
     credentialsSecretRef: tf-credentials
   source:
     module: https://github.com/vimal-vijayan/my-app.git
-    ref: refs/tags/v0.0.1
+    # ref: v0.0.2
+    ref: master
   backend:
     cloud:
       hostname: essity.scalr.io
       organization: cet-launchpad
-      workspace: demo-workspace-10
+      workspace: demo-workspace-11
   arguments:
     autoApprove: "true"
   vars:

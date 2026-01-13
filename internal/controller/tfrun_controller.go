@@ -460,6 +460,7 @@ func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1
 		logger.Info("Job will execute destroy command")
 	} else {
 		tfCommand = "ls -lrt && printenv && tofu init && tofu plan && tofu apply -auto-approve"
+		// tfCommand = "printenv && tofu init -backend-config=\"hostname=tfRun.Spec.Backend.Cloud.Hostname\" -backend-config=\"organization=tfRun.Spec.Backend.Cloud.Organization\" -backend-config=\"workspace=${TF_WORKSPACE}\" && tofu plan && tofu apply -auto-approve"
 		logger.Info("Job will execute init, plan, and apply commands")
 	}
 
