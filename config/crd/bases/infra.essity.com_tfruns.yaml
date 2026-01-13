@@ -52,6 +52,10 @@ spec:
                       workspace: my-workspace
                     description: Cloud backend configuration
                     properties:
+                      agentPoolId:
+                        type: string
+                      environmentId:
+                        type: string
                       hostname:
                         type: string
                       organization:
@@ -196,6 +200,10 @@ spec:
                 - Running
                 - Succeeded
                 - Failed
+                type: string
+              workspaceID:
+                description: WorkspaceID is the Scalr workspace ID created for this
+                  TfRun
                 type: string
             type: object
         type: object

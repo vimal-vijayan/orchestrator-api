@@ -17,6 +17,7 @@ spec:
       hostname: essity.scalr.io
       organization: cet-launchpad
       workspace: demo-workspace-10
+      agentPoolId: "ap-v0p08qgiq6mohe7ns"
   arguments:
     autoApprove: "true"
   vars:

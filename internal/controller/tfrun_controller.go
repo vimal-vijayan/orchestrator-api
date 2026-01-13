@@ -17,10 +17,13 @@ limitations under the License.
 package controller
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -64,6 +67,340 @@ const (
 type TfRunReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+}
+
+// ScalrWorkspaceRequest represents the Scalr API request structure
+type ScalrWorkspaceRequest struct {
+	Data ScalrWorkspaceData `json:"data"`
+}
+
+type ScalrWorkspaceData struct {
+	Type          string                      `json:"type"`
+	Attributes    ScalrWorkspaceAttributes    `json:"attributes"`
+	Relationships ScalrWorkspaceRelationships `json:"relationships"`
+}
+
+type ScalrWorkspaceAttributes struct {
+	Name        string `json:"name"`
+	AutoApply   bool   `json:"auto-apply"`
+	IacPlatform string `json:"iac-platform,omitempty"`
+}
+
+type ScalrWorkspaceRelationships struct {
+	AgentPool   ScalrAgentPoolRelation   `json:"agent-pool,omitempty"`
+	Environment ScalrEnvironmentRelation `json:"environment"`
+}
+
+type ScalrAgentPoolRelation struct {
+	Data ScalrAgentPoolData `json:"data"`
+}
+
+type ScalrAgentPoolData struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+type ScalrEnvironmentRelation struct {
+	Data ScalrEnvironmentData `json:"data"`
+}
+
+type ScalrEnvironmentData struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+// ScalrWorkspaceResponse represents the Scalr API response structure
+type ScalrWorkspaceResponse struct {
+	Data struct {
+		ID         string `json:"id"`
+		Type       string `json:"type"`
+		Attributes struct {
+			Name string `json:"name"`
+		} `json:"attributes"`
+	} `json:"data"`
+}
+
+// getScalrToken retrieves the Scalr token from the credentials secret
+func (r *TfRunReconciler) getScalrToken(ctx context.Context, tfRun *infrav1alpha1.TfRun) (string, error) {
+	logger := log.FromContext(ctx)
+
+	if tfRun.Spec.ForProvider.CredentialsSecretRef == "" {
+		return "", fmt.Errorf("credentials secret reference is required")
+	}
+
+	secret := &corev1.Secret{}
+	secretKey := types.NamespacedName{
+		Name:      tfRun.Spec.ForProvider.CredentialsSecretRef,
+		Namespace: tfRun.Namespace,
+	}
+
+	if err := r.Get(ctx, secretKey, secret); err != nil {
+		return "", fmt.Errorf("failed to get credentials secret: %w", err)
+	}
+
+	token, ok := secret.Data["token"]
+	if !ok {
+		return "", fmt.Errorf("token key not found in secret")
+	}
+
+	logger.V(1).Info("Retrieved Scalr token from secret", "secretName", tfRun.Spec.ForProvider.CredentialsSecretRef)
+	return string(token), nil
+}
+
+// createScalrWorkspace creates a workspace in Scalr
+func (r *TfRunReconciler) createScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun) (string, error) {
+	logger := log.FromContext(ctx)
+
+	if tfRun.Spec.Backend.Cloud == nil {
+		return "", fmt.Errorf("cloud backend configuration is required for Scalr workspace creation")
+	}
+
+	backend := tfRun.Spec.Backend.Cloud
+	agentPoolId := tfRun.Spec.Backend.Cloud.AgentPoolID
+	apiURL := fmt.Sprintf("https://%s/api/iacp/v3/workspaces", backend.Hostname)
+
+	// Use CR name as workspace name to ensure uniqueness
+	workspaceName := fmt.Sprintf("%s", backend.Workspace)
+
+	// Get environment ID from spec or fetch from API
+	var environmentID string
+	if backend.EnvironmentID != "" {
+		// Use explicitly provided environment ID
+		environmentID = backend.EnvironmentID
+		logger.Info("Using provided environment ID", "environmentID", environmentID)
+	} else {
+		// Fetch environment ID using environment name (stored in organization field)
+		logger.Info("Fetching environment ID from Scalr", "environmentName", backend.Organization)
+		envID, err := r.getScalrEnvironmentID(ctx, tfRun, backend.Organization)
+		if err != nil {
+			return "", fmt.Errorf("failed to get environment ID: %w", err)
+		}
+		environmentID = envID
+	}
+
+	payload := ScalrWorkspaceRequest{
+		Data: ScalrWorkspaceData{
+			Type: "workspaces",
+			Attributes: ScalrWorkspaceAttributes{
+				Name:        workspaceName,
+				AutoApply:   true,
+				IacPlatform: "opentofu",
+			},
+			Relationships: ScalrWorkspaceRelationships{
+				Environment: ScalrEnvironmentRelation{
+					Data: ScalrEnvironmentData{
+						Type: "environments",
+						ID:   environmentID,
+					},
+				},
+			},
+		},
+	}
+
+	// Only add agent pool if provided
+	if agentPoolId != "" {
+		logger.Info("Using provided agent pool ID", "agentPoolID", agentPoolId)
+		payload.Data.Relationships.AgentPool = ScalrAgentPoolRelation{
+			Data: ScalrAgentPoolData{
+				Type: "agent-pools",
+				ID:   agentPoolId,
+			},
+		}
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal workspace request: %w", err)
+	}
+
+	logger.Info("Creating Scalr workspace",
+		"workspaceName", workspaceName,
+		"apiURL", apiURL,
+		"environmentID", environmentID)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return "", fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/vnd.api+json")
+	req.Header.Set("Content-Type", "application/vnd.api+json")
+
+	// Add authentication token from secret
+	token, err := r.getScalrToken(ctx, tfRun)
+	if err != nil {
+		return "", fmt.Errorf("failed to get Scalr token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call Scalr API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+		logger.Error(nil, "Scalr API returned error", "statusCode", resp.StatusCode, "body", string(body))
+		return "", fmt.Errorf("scalr API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var workspaceResp ScalrWorkspaceResponse
+	if err := json.Unmarshal(body, &workspaceResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	logger.Info("Scalr workspace created successfully",
+		"workspaceID", workspaceResp.Data.ID,
+		"workspaceName", workspaceResp.Data.Attributes.Name)
+
+	return workspaceResp.Data.ID, nil
+}
+
+// ScalrEnvironmentResponse represents the Scalr environment API response
+type ScalrEnvironmentListResponse struct {
+	Data []struct {
+		ID         string `json:"id"`
+		Type       string `json:"type"`
+		Attributes struct {
+			Name string `json:"name"`
+		} `json:"attributes"`
+	} `json:"data"`
+}
+
+// getScalrEnvironmentID retrieves the environment ID from Scalr by name
+func (r *TfRunReconciler) getScalrEnvironmentID(ctx context.Context, tfRun *infrav1alpha1.TfRun, environmentName string) (string, error) {
+	logger := log.FromContext(ctx)
+
+	if tfRun.Spec.Backend.Cloud == nil {
+		return "", fmt.Errorf("cloud backend configuration is required")
+	}
+
+	backend := tfRun.Spec.Backend.Cloud
+	// Use list API with filter to find environment by name
+	apiURL := fmt.Sprintf("https://%s/api/iacp/v3/environments?filter[name]=%s", backend.Hostname, environmentName)
+
+	logger.Info("Fetching Scalr environment ID by name", "environmentName", environmentName, "apiURL", apiURL)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Accept", "application/vnd.api+json")
+
+	// Add authentication token from secret
+	token, err := r.getScalrToken(ctx, tfRun)
+	if err != nil {
+		return "", fmt.Errorf("failed to get Scalr token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to call Scalr API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		logger.Error(nil, "Scalr API returned error", "statusCode", resp.StatusCode, "body", string(body))
+		return "", fmt.Errorf("scalr API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var envListResp ScalrEnvironmentListResponse
+	if err := json.Unmarshal(body, &envListResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	// Check if any environments were found
+	if len(envListResp.Data) == 0 {
+		return "", fmt.Errorf("environment '%s' not found", environmentName)
+	}
+
+	// Use the first matching environment
+	environmentID := envListResp.Data[0].ID
+	logger.Info("Scalr environment found",
+		"environmentName", envListResp.Data[0].Attributes.Name,
+		"environmentID", environmentID,
+		"matchCount", len(envListResp.Data))
+
+	return environmentID, nil
+}
+
+// deleteScalrWorkspace deletes a workspace from Scalr
+func (r *TfRunReconciler) deleteScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun, workspaceID string) error {
+	logger := log.FromContext(ctx)
+
+	if tfRun.Spec.Backend.Cloud == nil {
+		return fmt.Errorf("cloud backend configuration is required for Scalr workspace deletion")
+	}
+
+	if workspaceID == "" {
+		logger.V(1).Info("No workspace ID to delete, skipping")
+		return nil
+	}
+
+	hostname := tfRun.Spec.Backend.Cloud.Hostname
+	if hostname == "" {
+		return fmt.Errorf("hostname is required in cloud backend configuration")
+	}
+
+	// Get authentication token
+	token, err := r.getScalrToken(ctx, tfRun)
+	if err != nil {
+		return fmt.Errorf("failed to get Scalr token: %w", err)
+	}
+
+	// Construct the API URL
+	apiURL := fmt.Sprintf("https://%s/api/iacp/v3/workspaces/%s", hostname, workspaceID)
+	logger.V(1).Info("Deleting Scalr workspace", "url", apiURL, "workspaceID", workspaceID)
+
+	// Create DELETE request
+	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	// Execute the request
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to call Scalr API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// DELETE typically returns 204 No Content on success, but also accept 200 OK
+	// Also accept 404 Not Found as the workspace may have already been deleted
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
+		logger.Error(nil, "Scalr API returned error", "statusCode", resp.StatusCode, "body", string(body))
+		return fmt.Errorf("scalr API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	if resp.StatusCode == http.StatusNotFound {
+		logger.Info("Scalr workspace already deleted or not found", "workspaceID", workspaceID)
+	} else {
+		logger.Info("Scalr workspace deleted successfully", "workspaceID", workspaceID)
+	}
+
+	return nil
 }
 
 // +kubebuilder:rbac:groups=infra.essity.com,resources=tfruns,verbs=get;list;watch;create;update;patch;delete
@@ -223,6 +560,28 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		"hashChanged", tfRun.Status.LastSpecHash != currentSpecHash,
 		"previousPhase", tfRun.Status.Phase)
 
+	// Create Scalr workspace if not already created
+	if tfRun.Status.WorkspaceID == "" && tfRun.Spec.Backend.Cloud != nil {
+		logger.Info("Creating Scalr workspace before Job execution")
+		workspaceID, err := r.createScalrWorkspace(ctx, tfRun)
+		if err != nil {
+			logger.Error(err, "Failed to create Scalr workspace")
+			tfRun.Status.Phase = PhaseFailed
+			tfRun.Status.Message = fmt.Sprintf("Failed to create Scalr workspace: %v", err)
+			_, _ = r.updateStatus(ctx, tfRun)
+			return ctrl.Result{}, err
+		}
+
+		tfRun.Status.WorkspaceID = workspaceID
+		logger.Info("Scalr workspace created, updating status", "workspaceID", workspaceID)
+		if err := r.Status().Update(ctx, tfRun); err != nil {
+			logger.Error(err, "Failed to update status with workspace ID")
+			return ctrl.Result{}, err
+		}
+	} else if tfRun.Status.WorkspaceID != "" {
+		logger.Info("Using existing Scalr workspace", "workspaceID", tfRun.Status.WorkspaceID)
+	}
+
 	// Create a new apply Job
 	logger.Info("Creating new tofu apply Job")
 	job, err := r.buildtofuJob(ctx, tfRun, jobTypeApply)
@@ -322,7 +681,7 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 
 		// Check if destroy Job succeeded
 		if r.isJobSucceeded(job) {
-			logger.Info("Destroy Job succeeded, removing finalizer")
+			logger.Info("Destroy Job succeeded, deleting Scalr workspace")
 			tfRun.Status.Phase = PhaseSucceeded
 			tfRun.Status.Message = "tofu destroy succeeded"
 			meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
@@ -334,6 +693,17 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 			})
 			if err := r.Status().Update(ctx, tfRun); err != nil {
 				return ctrl.Result{}, err
+			}
+
+			// Delete Scalr workspace after successful destroy
+			if tfRun.Status.WorkspaceID != "" {
+				logger.Info("Deleting Scalr workspace", "workspaceID", tfRun.Status.WorkspaceID)
+				if err := r.deleteScalrWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID); err != nil {
+					logger.Error(err, "Failed to delete Scalr workspace, continuing with finalizer removal")
+					// Don't fail the deletion if workspace deletion fails
+				} else {
+					logger.Info("Scalr workspace deleted successfully")
+				}
 			}
 
 			controllerutil.RemoveFinalizer(tfRun, finalizerName)

@@ -49,6 +49,9 @@ type TfRunStatus struct {
 	// ActiveJobName is the name of the currently running Job
 	ActiveJobName string `json:"activeJobName,omitempty"`
 
+	// WorkspaceID is the Scalr workspace ID created for this TfRun
+	WorkspaceID string `json:"workspaceID,omitempty"`
+
 	// LastSpecHash is the hash of the spec from the last successful run
 	LastSpecHash string `json:"lastSpecHash,omitempty"`
 
@@ -78,6 +81,10 @@ type CloudBackend struct {
 	Organization string `json:"organization"`
 	//+kubebuilder:validation:Required
 	Workspace string `json:"workspace"`
+	//+kubebuilder:validation:Optional
+	EnvironmentID string `json:"environmentId,omitempty"`
+	//+kubebuilder:validation:Optional
+	AgentPoolID string `json:"agentPoolId,omitempty"`
 }
 
 type StorageAccountBackend struct {
