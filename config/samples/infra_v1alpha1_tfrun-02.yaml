@@ -10,8 +10,8 @@ spec:
     credentialsSecretRef: tf-credentials
   source:
     module: https://github.com/vimal-vijayan/my-app.git
-    # ref: v0.0.2
     ref: master
+    credentialsSecretRef: git-credentials
   backend:
     cloud:
       hostname: essity.scalr.io
@@ -19,7 +19,7 @@ spec:
       workspace: demo-workspace-11
       agentPoolId: "ap-v0p08qgiq6mohe7ns"
   arguments:
-    autoApprove: "true"
+    autoApprove: "true" 
   vars:
     name: "vimal-doing-test"
     object_example:

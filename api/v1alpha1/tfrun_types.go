@@ -114,6 +114,9 @@ type TfSource struct {
 	// Path is the path within the repository to the Terraform configuration
 	// +kubebuilder:validation:Optional
 	Path string `json:"path,omitempty"`
+	// CredentialsSecretRef is the name of the secret containing git credentials
+	// +kubebuilder:validation:Optional
+	CredentialsSecretRef string `json:"credentialsSecretRef,omitempty"`
 }
 
 // +kubebuilder:object:root=true
