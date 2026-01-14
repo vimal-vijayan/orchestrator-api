@@ -91,6 +91,10 @@ spec:
               source:
                 description: TfSource defines the source of the Terraform configuration
                 properties:
+                  credentialsSecretRef:
+                    description: CredentialsSecretRef is the name of the secret containing
+                      git credentials
+                    type: string
                   module:
                     description: Module is the git URL of the Terraform module
                     type: string

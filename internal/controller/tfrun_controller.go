@@ -148,6 +148,42 @@ func (r *TfRunReconciler) getScalrToken(ctx context.Context, tfRun *infrav1alpha
 	return string(token), nil
 }
 
+// getGitCredentials retrieves the git PAT token from the specified secret
+// If secretName is empty, it defaults to "git-credentials"
+// If the secret doesn't exist, returns empty string (falls back to public clone)
+func (r *TfRunReconciler) getGitCredentials(ctx context.Context, tfRun *infrav1alpha1.TfRun, secretName string) (string, error) {
+	logger := log.FromContext(ctx)
+
+	// Use default secret name if not provided
+	if secretName == "" {
+		secretName = "git-credentials"
+		logger.V(1).Info("No git credentials secret specified, using default", "secretName", secretName)
+	}
+
+	secret := &corev1.Secret{}
+	secretKey := types.NamespacedName{
+		Name:      secretName,
+		Namespace: tfRun.Namespace,
+	}
+
+	if err := r.Get(ctx, secretKey, secret); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Secret not found, return empty string (will use public clone)
+			logger.V(1).Info("Git credentials secret not found, using public repository access", "secretName", secretName)
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to get git-credentials secret: %w", err)
+	}
+
+	token, ok := secret.Data["token"]
+	if !ok {
+		return "", fmt.Errorf("token key not found in git-credentials secret")
+	}
+
+	logger.V(1).Info("Retrieved git PAT token from secret", "secretName", secretName)
+	return string(token), nil
+}
+
 // createScalrWorkspace creates a workspace in Scalr
 func (r *TfRunReconciler) createScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun) (string, error) {
 	logger := log.FromContext(ctx)
@@ -523,6 +559,7 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			logger.Info("Job failed", "jobName", job.Name)
 			tfRun.Status.Phase = PhaseFailed
 			tfRun.Status.ActiveJobName = ""
+			tfRun.Status.LastSpecHash = currentSpecHash
 			tfRun.Status.Message = "tofu apply failed"
 			meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
 				Type:               ConditionTypeApplied,
@@ -545,11 +582,11 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	// No active Job - decide if we need to create one
-	// Skip if spec hasn't changed and last run succeeded
+	// Skip if spec hasn't changed and we've already processed this generation
 	if tfRun.Status.LastSpecHash == currentSpecHash &&
-		tfRun.Status.Phase == PhaseSucceeded &&
 		tfRun.Status.ObservedGeneration == tfRun.Generation {
-		logger.Info("Spec unchanged and last run succeeded, skipping reconciliation",
+		logger.Info("Spec unchanged and already processed, skipping reconciliation",
+			"phase", tfRun.Status.Phase,
 			"generation", tfRun.Generation,
 			"observedGeneration", tfRun.Status.ObservedGeneration,
 			"lastRunTime", tfRun.Status.LastRunTime)
@@ -878,16 +915,36 @@ func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1
 		})
 	}
 
+	// Get git credentials if available
+	gitToken, err := r.getGitCredentials(ctx, tfRun, tfRun.Spec.Source.CredentialsSecretRef)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get git credentials: %w", err)
+	}
+
+	// Build authenticated repository URL if token is available
+	repoURL := tfRun.Spec.Source.Module
+	if gitToken != "" {
+		// Convert https://github.com/user/repo.git to https://token@github.com/user/repo.git
+		if len(repoURL) > 8 && repoURL[:8] == "https://" {
+			repoURL = fmt.Sprintf("https://%s@%s", gitToken, repoURL[8:])
+			logger.Info("Using authenticated git clone for private repository")
+		} else {
+			logger.Info("Git credentials available but repository URL is not HTTPS, using public clone")
+		}
+	} else {
+		logger.Info("No git credentials found, using public repository clone")
+	}
+
 	// Build git clone command
 	var gitCloneCmd string
 	if tfRun.Spec.Source.Ref != "" {
 		// Clone the repository and then checkout the specific ref
 		// This handles branches, tags, and commit SHAs uniformly
 		gitCloneCmd = fmt.Sprintf("git clone --depth 5 %s /workspace && cd /workspace && git fetch --depth 5 origin %s && git checkout %s",
-			tfRun.Spec.Source.Module, tfRun.Spec.Source.Ref, tfRun.Spec.Source.Ref)
+			repoURL, tfRun.Spec.Source.Ref, tfRun.Spec.Source.Ref)
 	} else {
 		// Clone default branch
-		gitCloneCmd = fmt.Sprintf("git clone --depth 5 %s /workspace", tfRun.Spec.Source.Module)
+		gitCloneCmd = fmt.Sprintf("git clone --depth 5 %s /workspace", repoURL)
 	}
 
 	// Working directory for tofu
@@ -903,7 +960,7 @@ func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1
 		"envVarsCount", len(envVars))
 
 	// Define the Job
-	backoffLimit := int32(3)
+	backoffLimit := int32(0)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
