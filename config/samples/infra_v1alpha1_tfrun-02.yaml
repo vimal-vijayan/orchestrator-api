@@ -21,4 +21,4 @@ spec:
   arguments:
     autoApprove: "true"
   vars:
-    name: "orchestrator-sample"
+    name: "vimal-doing-test"

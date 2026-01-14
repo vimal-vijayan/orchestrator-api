@@ -829,8 +829,8 @@ func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1
 		tfCommand = "tofu init && tofu plan -destroy && tofu destroy -auto-approve"
 		logger.Info("Job will execute destroy command")
 	} else {
-		tfCommand = "ls -lrt && printenv && tofu init && tofu plan && tofu apply -auto-approve"
-		// tfCommand = "printenv && tofu init -backend-config=\"hostname=tfRun.Spec.Backend.Cloud.Hostname\" -backend-config=\"organization=tfRun.Spec.Backend.Cloud.Organization\" -backend-config=\"workspace=${TF_WORKSPACE}\" && tofu plan && tofu apply -auto-approve"
+		//TODO: Check available go packages for tofu plan output parsing and implement a two-step plan/apply with approval
+		tfCommand = "tofu init && tofu apply -auto-approve"
 		logger.Info("Job will execute init, plan, and apply commands")
 	}
 
