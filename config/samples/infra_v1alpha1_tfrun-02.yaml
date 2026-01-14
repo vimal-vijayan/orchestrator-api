@@ -22,3 +22,8 @@ spec:
     autoApprove: "true"
   vars:
     name: "vimal-doing-test"
+    object_example:
+      - name: "vimal"
+        age: 30
+      - name: "vijayan"
+        age: 25

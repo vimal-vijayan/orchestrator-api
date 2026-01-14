@@ -21,7 +21,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -169,9 +170,18 @@ func (in *TfRunSpec) DeepCopyInto(out *TfRunSpec) {
 	}
 	if in.Vars != nil {
 		in, out := &in.Vars, &out.Vars
-		*out = make(map[string]string, len(*in))
+		*out = make(map[string]*v1.JSON, len(*in))
 		for key, val := range *in {
-			(*out)[key] = val
+			var outVal *v1.JSON
+			if val == nil {
+				(*out)[key] = nil
+			} else {
+				inVal := (*in)[key]
+				in, out := &inVal, &outVal
+				*out = new(v1.JSON)
+				(*in).DeepCopyInto(*out)
+			}
+			(*out)[key] = outVal
 		}
 	}
 }
@@ -195,7 +205,7 @@ func (in *TfRunStatus) DeepCopyInto(out *TfRunStatus) {
 	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
-		*out = make([]v1.Condition, len(*in))
+		*out = make([]metav1.Condition, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}

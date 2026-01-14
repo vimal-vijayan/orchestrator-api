@@ -28,6 +28,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -786,7 +787,7 @@ func (r *TfRunReconciler) computeSpecHash(tfRun *infrav1alpha1.TfRun) (string, e
 		Module    string
 		Ref       string
 		Path      string
-		Vars      map[string]string
+		Vars      map[string]*apiextensionsv1.JSON
 		Arguments map[string]string
 		Backend   infrav1alpha1.TfBackend
 	}{
@@ -838,11 +839,15 @@ func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1
 	logger.V(1).Info("Building environment variables", "varsCount", len(tfRun.Spec.Vars))
 	envVars := []corev1.EnvVar{}
 	for k, v := range tfRun.Spec.Vars {
-		logger.V(2).Info("Adding tofu variable", "key", k, "valueLength", len(v))
-		envVars = append(envVars, corev1.EnvVar{
-			Name:  fmt.Sprintf("TF_VAR_%s", k),
-			Value: v,
-		})
+		// Convert JSON to string for environment variable
+		if v != nil {
+			varValue := string(v.Raw)
+			logger.V(2).Info("Adding tofu variable", "key", k, "valueLength", len(varValue))
+			envVars = append(envVars, corev1.EnvVar{
+				Name:  fmt.Sprintf("TF_VAR_%s", k),
+				Value: varValue,
+			})
+		}
 	}
 
 	// Add backend configuration if present
@@ -898,7 +903,7 @@ func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1
 		"envVarsCount", len(envVars))
 
 	// Define the Job
-	backoffLimit := int32(0)
+	backoffLimit := int32(3)
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,

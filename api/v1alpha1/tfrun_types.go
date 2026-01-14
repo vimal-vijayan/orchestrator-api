@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -34,7 +35,9 @@ type TfRunSpec struct {
 	//+kubebuilder:validation:Optional
 	Arguments map[string]string `json:"arguments,omitempty"`
 	//+kubebuilder:validation:Optional
-	Vars map[string]string `json:"vars,omitempty"`
+	//+kubebuilder:pruning:PreserveUnknownFields
+	//+kubebuilder:validation:Schemaless
+	Vars map[string]*apiextensionsv1.JSON `json:"vars,omitempty"`
 }
 
 // TfRunStatus defines the observed state of TfRun
