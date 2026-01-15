@@ -21,6 +21,8 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"os"
+	"strconv"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -60,6 +62,10 @@ const (
 	labelJobType   = "job-type"
 	jobTypeApply   = "apply"
 	jobTypeDestroy = "destroy"
+
+	// job TTL default
+	ttlSuccessDefault = int32(3600)  // 1 hour
+	ttlFailureDefault = int32(86400) // 1 day
 )
 
 // TfRunReconciler reconciles a TfRun object
@@ -660,6 +666,13 @@ func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1
 
 	// Define the Job
 	backoffLimit := int32(0)
+
+	ttlSeconds := getTTL("JOB_TTL_SUCCESS", ttlSuccessDefault)
+	if jobType == jobTypeDestroy {
+		ttlSeconds = getTTL("JOB_TTL_FAILURE", ttlFailureDefault)
+	}
+
+	// ttlFailure := getTTL("TF_RUN_TTL_SECONDS_ON_FAILURE", int32(86400))
 	job := &batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      jobName,
@@ -670,7 +683,8 @@ func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1
 			},
 		},
 		Spec: batchv1.JobSpec{
-			BackoffLimit: &backoffLimit,
+			BackoffLimit:            &backoffLimit,
+			TTLSecondsAfterFinished: &ttlSeconds,
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
@@ -740,6 +754,19 @@ func (r *TfRunReconciler) isJobSucceeded(job *batchv1.Job) bool {
 // isJobFailed checks if a Job has failed
 func (r *TfRunReconciler) isJobFailed(job *batchv1.Job) bool {
 	return job.Status.Failed > 0
+}
+
+func getTTL(env string, defaultTTL int32) int32 {
+	logger := log.Log.WithName("getTTL")
+	logger.V(1).Info("Retrieving TTL from environment", "env", env, "defaultTTL", defaultTTL)
+	if val := os.Getenv(env); val != "" {
+		ttl, err := strconv.Atoi(val)
+		if err == nil && ttl >= 600 {
+			return int32(ttl)
+		}
+		logger.V(1).Error(err, "Invalid TTL value, using default", "value", val)
+	}
+	return defaultTTL
 }
 
 // updateStatus updates the TfRun status
