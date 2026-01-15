@@ -71,13 +71,17 @@ type TfRunStatus struct {
 type TfBackend struct {
 	// Cloud backend configuration
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:={hostname:"essity.scalr.io", organization:"my-org", workspace:"my-workspace"}
+	// +kubebuilder:default:={provider:"scalr", hostname:"essity.scalr.io", organization:"my-org", workspace:"my-workspace"}
 	Cloud *CloudBackend `json:"cloud,omitempty"`
 	// +kubebuilder:validation:Optional
 	StorageAccount *StorageAccountBackend `json:"storageAccount,omitempty"`
 }
 
 type CloudBackend struct {
+	//+kubebuilder:validation:Required
+	//+kubebuilder:validation:Enum=scalr;terraformCloud
+	//+kubebuilder:default:="scalr"
+	Provider string `json:"provider"`
 	//+kubebuilder:validation:Required
 	Hostname string `json:"hostname"`
 	//+kubebuilder:validation:Required

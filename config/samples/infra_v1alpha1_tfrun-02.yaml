@@ -14,12 +14,13 @@ spec:
     credentialsSecretRef: git-credentials
   backend:
     cloud:
+      provider: scalr
       hostname: essity.scalr.io
       organization: cet-launchpad
       workspace: demo-workspace-11
       agentPoolId: "ap-v0p08qgiq6mohe7ns"
   arguments:
-    autoApprove: "true" 
+    autoApprove: "true"
   vars:
     name: "vimal-doing-test"
     object_example:

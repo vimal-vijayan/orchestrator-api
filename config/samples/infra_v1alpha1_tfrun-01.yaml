@@ -14,6 +14,7 @@ spec:
     # path: modules/network
   backend:
     cloud:
+      provider: scalr
       hostname: essity.scalr.io
       organization: cet-launchpad
       workspace: demo-workspace-10

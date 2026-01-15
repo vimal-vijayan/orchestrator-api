@@ -49,6 +49,7 @@ spec:
                     default:
                       hostname: essity.scalr.io
                       organization: my-org
+                      provider: scalr
                       workspace: my-workspace
                     description: Cloud backend configuration
                     properties:
@@ -60,11 +61,18 @@ spec:
                         type: string
                       organization:
                         type: string
+                      provider:
+                        default: scalr
+                        enum:
+                        - scalr
+                        - terraformCloud
+                        type: string
                       workspace:
                         type: string
                     required:
                     - hostname
                     - organization
+                    - provider
                     - workspace
                     type: object
                   storageAccount:
