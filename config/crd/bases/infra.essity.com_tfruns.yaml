@@ -14,7 +14,25 @@ spec:
     singular: tfrun
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.workspaceID
+      name: Workspace
+      type: string
+    - jsonPath: .status.activeJobName
+      name: Job
+      priority: 1
+      type: string
+    - jsonPath: .status.lastRunTime
+      name: LastRun
+      type: date
+    - jsonPath: .status.message
+      name: Message
+      priority: 1
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: TfRun is the Schema for the tfruns API

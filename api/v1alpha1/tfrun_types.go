@@ -126,6 +126,11 @@ type TfSource struct {
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Workspace",type=string,JSONPath=".status.workspaceID"
+// +kubebuilder:printcolumn:name="Job",type=string,JSONPath=".status.activeJobName",priority=1
+// +kubebuilder:printcolumn:name="LastRun",type=date,JSONPath=".status.lastRunTime"
+// +kubebuilder:printcolumn:name="Message",type=string,JSONPath=".status.message",priority=1
 // TfRun is the Schema for the tfruns API
 type TfRun struct {
 	metav1.TypeMeta   `json:",inline"`

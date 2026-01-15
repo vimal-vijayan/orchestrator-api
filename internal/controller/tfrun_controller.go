@@ -300,6 +300,10 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 
 		tfRun.Status.WorkspaceID = workspaceID
+		tfRun.Status.Phase = PhasePending
+		tfRun.Status.Message = "backend workspace ensured"
+		tfRun.Status.ObservedGeneration = tfRun.Generation
+
 		logger.Info("backend workspace created, updating status", "workspaceID", workspaceID)
 		if err := r.Status().Update(ctx, tfRun); err != nil {
 			logger.Error(err, "Failed to update status with workspace ID")
