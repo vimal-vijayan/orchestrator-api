@@ -104,7 +104,6 @@ func (r *TfRunReconciler) getGitCredentials(ctx context.Context, tfRun *infrav1a
 	return string(token), nil
 }
 
-
 func (r *TfRunReconciler) getCloudBackend(ctx context.Context, tfRun *infrav1alpha1.TfRun) (backend.CloudBackend, error) {
 	logger := log.FromContext(ctx)
 
