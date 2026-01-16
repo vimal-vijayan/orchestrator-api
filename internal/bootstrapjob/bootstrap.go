@@ -33,7 +33,7 @@ const (
 	jobTypeApply   = "apply"
 	jobTypeDestroy = "destroy"
 
-	jobBackoffLimit = 0
+	jobBackoffLimit = 3
 	// job TTL default
 	ttlSuccessDefault = int32(3600)  // 1 hour
 	ttlFailureDefault = int32(86400) // 1 day
