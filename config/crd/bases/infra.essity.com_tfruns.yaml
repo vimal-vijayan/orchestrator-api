@@ -107,6 +107,18 @@ spec:
                     - key
                     type: object
                 type: object
+              engine:
+                properties:
+                  type:
+                    default: opentofu
+                    enum:
+                    - terraform
+                    - opentofu
+                    type: string
+                  version:
+                    default: latest
+                    type: string
+                type: object
               forProvider:
                 properties:
                   credentialsSecretRef:

@@ -1,0 +1,58 @@
+apiVersion: infra.essity.com/v1alpha1
+kind: TfRun
+metadata:
+  labels:
+    app.kubernetes.io/name: orchestrator-api
+    app.kubernetes.io/managed-by: kustomize
+  name: tfrun-sample-03
+spec:
+  # Provider credentials reference
+  forProvider:
+    credentialsSecretRef: tf-credentials
+
+  # Engine configuration (optional - defaults to opentofu:latest)
+  engine:
+    type: opentofu
+    version: "1.6.0"
+
+  # Source configuration
+  source:
+    module: https://github.com/vimal-vijayan/infrastructure-modules.git
+    ref: v1.0.0
+    path: azure/storage-account
+    credentialsSecretRef: git-credentials
+
+  # Backend configuration with Scalr
+  backend:
+    cloud:
+      provider: scalr
+      hostname: essity.scalr.io
+      organization: cet-launchpad
+      workspace: demo-workspace-12
+      agentPoolId: "ap-v0p08qgiq6mohe7ns"
+      environmentId: "env-12345"
+
+  # Terraform arguments
+  arguments:
+    autoApprove: "true"
+    parallelism: "10"
+    refresh: "true"
+
+  # Terraform variables (supports complex objects and arrays)
+  vars:
+    environment: "production"
+    location: "eastus"
+    resource_group_name: "rg-demo-prod"
+    enable_monitoring: true
+    replica_count: 3
+    tags:
+      project: "infrastructure-demo"
+      owner: "platform-team"
+      cost-center: "engineering"
+    network_config:
+      - subnet_name: "subnet-web"
+        address_prefix: "10.0.1.0/24"
+      - subnet_name: "subnet-app"
+        address_prefix: "10.0.2.0/24"
+      - subnet_name: "subnet-data"
+        address_prefix: "10.0.3.0/24"

@@ -21,8 +21,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -40,6 +38,7 @@ import (
 
 	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
 	"infra.essity.com/orchstrator-api/internal/backend"
+	"infra.essity.com/orchstrator-api/internal/bootstrapjob"
 )
 
 const (
@@ -321,7 +320,14 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// Create a new apply Job
 	logger.Info("Creating new tofu apply Job")
-	job, err := r.buildtofuJob(ctx, tfRun, jobTypeApply)
+	// job, err := r.buildtofuJob(ctx, tfRun, jobTypeApply)
+	// FIXME: pass the jobEngine from tfRun spec
+	applyJob, err := bootstrapjob.ForEngine(r.Client, "opentofu", []string{})
+	if err != nil {
+		logger.Error(err, "Failed to get tofu Job builder for apply")
+		return ctrl.Result{}, err
+	}
+	job, err := applyJob.BuildJob(ctx, tfRun, jobTypeApply)
 	if err != nil {
 		logger.Error(err, "Failed to build tofu Job")
 		tfRun.Status.Phase = PhaseFailed
@@ -484,7 +490,15 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 
 	// No active destroy Job - create one
 	logger.Info("Creating tofu destroy Job")
-	job, err := r.buildtofuJob(ctx, tfRun, jobTypeDestroy)
+	// job, err := r.buildtofuJob(ctx, tfRun, jobTypeDestroy)
+	// FIXME: pass the jobEngine from tfRun spec
+	destroyJob, err := bootstrapjob.ForEngine(r.Client, "opentofu", []string{})
+	if err != nil {
+		logger.Error(err, "Failed to get tofu Job builder for destroy")
+		return ctrl.Result{}, err
+	}
+
+	job, err := destroyJob.BuildJob(ctx, tfRun, jobTypeDestroy)
 	if err != nil {
 		logger.Error(err, "Failed to build destroy Job")
 		return ctrl.Result{}, err
@@ -551,196 +565,6 @@ func (r *TfRunReconciler) computeSpecHash(tfRun *infrav1alpha1.TfRun) (string, e
 	return hashStr, nil
 }
 
-// buildtofuJob creates a Kubernetes Job for tofu operations
-func (r *TfRunReconciler) buildtofuJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string) (*batchv1.Job, error) {
-	logger := log.FromContext(ctx)
-
-	logger.Info("Building tofu Job", "jobType", jobType, "module", tfRun.Spec.Source.Module, "ref", tfRun.Spec.Source.Ref, "path", tfRun.Spec.Source.Path)
-
-	// Compute a short hash for unique Job naming
-	specHash, err := r.computeSpecHash(tfRun)
-	if err != nil {
-		return nil, err
-	}
-
-	jobName := fmt.Sprintf("%s-%s-%s", tfRun.Name, jobType, specHash)
-	logger.Info("Generated Job name", "jobName", jobName, "hash", specHash)
-
-	// Determine tofu command based on job type
-	var tfCommand string
-	if jobType == jobTypeDestroy {
-		tfCommand = "tofu init && tofu plan -destroy && tofu destroy -auto-approve"
-		logger.Info("Job will execute destroy command")
-	} else {
-		//TODO: Check available go packages for tofu plan output parsing and implement a two-step plan/apply with approval
-		tfCommand = "tofu init && tofu apply -auto-approve"
-		logger.Info("Job will execute init, plan, and apply commands")
-	}
-
-	// Build environment variables for tofu
-	logger.V(1).Info("Building environment variables", "varsCount", len(tfRun.Spec.Vars))
-	envVars := []corev1.EnvVar{}
-	for k, v := range tfRun.Spec.Vars {
-		// Convert JSON to string for environment variable
-		if v != nil {
-			varValue := string(v.Raw)
-			logger.V(2).Info("Adding tofu variable", "key", k, "valueLength", len(varValue))
-			envVars = append(envVars, corev1.EnvVar{
-				Name:  fmt.Sprintf("TF_VAR_%s", k),
-				Value: varValue,
-			})
-		}
-	}
-
-	// Add backend configuration if present
-	if tfRun.Spec.Backend.Cloud != nil {
-		logger.Info("Configuring cloud backend", "hostname", tfRun.Spec.Backend.Cloud.Hostname, "organization", tfRun.Spec.Backend.Cloud.Organization, "workspace", tfRun.Spec.Backend.Cloud.Workspace)
-		envVars = append(envVars,
-			corev1.EnvVar{Name: "TF_CLOUD_HOSTNAME", Value: tfRun.Spec.Backend.Cloud.Hostname},
-			corev1.EnvVar{Name: "TF_CLOUD_ORGANIZATION", Value: tfRun.Spec.Backend.Cloud.Organization},
-			corev1.EnvVar{Name: "TF_WORKSPACE", Value: tfRun.Spec.Backend.Cloud.Workspace},
-		)
-	} else if tfRun.Spec.Backend.StorageAccount != nil {
-		logger.Info("Configuring storage account backend", "accountName", tfRun.Spec.Backend.StorageAccount.AccountName, "containerName", tfRun.Spec.Backend.StorageAccount.ContainerName)
-	}
-
-	// Add credentials from secret
-	if tfRun.Spec.ForProvider.CredentialsSecretRef != "" {
-		envVars = append(envVars, corev1.EnvVar{
-			// Scalr token environment variable
-			Name: "TF_TOKEN_essity_scalr_io",
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: tfRun.Spec.ForProvider.CredentialsSecretRef,
-					},
-					Key: "token",
-				},
-			},
-		})
-	}
-
-	// Get git credentials if available
-	gitToken, err := r.getGitCredentials(ctx, tfRun, tfRun.Spec.Source.CredentialsSecretRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get git credentials: %w", err)
-	}
-
-	// Build authenticated repository URL if token is available
-	repoURL := tfRun.Spec.Source.Module
-	if gitToken != "" {
-		// Convert https://github.com/user/repo.git to https://token@github.com/user/repo.git
-		if len(repoURL) > 8 && repoURL[:8] == "https://" {
-			repoURL = fmt.Sprintf("https://%s@%s", gitToken, repoURL[8:])
-			logger.Info("Using authenticated git clone for private repository")
-		} else {
-			logger.Info("Git credentials available but repository URL is not HTTPS, using public clone")
-		}
-	} else {
-		logger.Info("No git credentials found, using public repository clone")
-	}
-
-	// Build git clone command
-	var gitCloneCmd string
-	if tfRun.Spec.Source.Ref != "" {
-		// Clone the repository and then checkout the specific ref
-		// This handles branches, tags, and commit SHAs uniformly
-		gitCloneCmd = fmt.Sprintf("git clone --depth 5 %s /workspace && cd /workspace && git fetch --depth 5 origin %s && git checkout %s",
-			repoURL, tfRun.Spec.Source.Ref, tfRun.Spec.Source.Ref)
-	} else {
-		// Clone default branch
-		gitCloneCmd = fmt.Sprintf("git clone --depth 5 %s /workspace", repoURL)
-	}
-
-	// Working directory for tofu
-	workDir := "/workspace"
-	if tfRun.Spec.Source.Path != "" {
-		workDir = fmt.Sprintf("/workspace/%s", tfRun.Spec.Source.Path)
-	}
-
-	logger.Info("Job configuration",
-		"gitCloneCmd", gitCloneCmd,
-		"tofuCmd", tfCommand,
-		"workDir", workDir,
-		"envVarsCount", len(envVars))
-
-	// Define the Job
-	backoffLimit := int32(0)
-
-	ttlSeconds := getTTL("JOB_TTL_SUCCESS", ttlSuccessDefault)
-	if jobType == jobTypeDestroy {
-		ttlSeconds = getTTL("JOB_TTL_FAILURE", ttlFailureDefault)
-	}
-
-	// ttlFailure := getTTL("TF_RUN_TTL_SECONDS_ON_FAILURE", int32(86400))
-	job := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      jobName,
-			Namespace: tfRun.Namespace,
-			Labels: map[string]string{
-				labeltofuRun: tfRun.Name,
-				labelJobType: jobType,
-			},
-		},
-		Spec: batchv1.JobSpec{
-			BackoffLimit:            &backoffLimit,
-			TTLSecondsAfterFinished: &ttlSeconds,
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						labeltofuRun: tfRun.Name,
-						labelJobType: jobType,
-					},
-				},
-				Spec: corev1.PodSpec{
-					RestartPolicy: corev1.RestartPolicyNever,
-					InitContainers: []corev1.Container{
-						{
-							Name:    "git-clone",
-							Image:   "alpine/git:latest",
-							Command: []string{"/bin/sh", "-c"},
-							Args:    []string{gitCloneCmd},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "workspace",
-									MountPath: "/workspace",
-								},
-							},
-						},
-					},
-					Containers: []corev1.Container{
-						{
-							Name:       "opentofu",
-							Image:      "ghcr.io/opentofu/opentofu:latest",
-							Command:    []string{"/bin/sh", "-c"},
-							Args:       []string{tfCommand},
-							WorkingDir: workDir,
-							Env:        envVars,
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      "workspace",
-									MountPath: "/workspace",
-								},
-							},
-						},
-					},
-					Volumes: []corev1.Volume{
-						{
-							Name: "workspace",
-							VolumeSource: corev1.VolumeSource{
-								EmptyDir: &corev1.EmptyDirVolumeSource{},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	logger.Info("Built tofu Job", "jobName", jobName, "jobType", jobType)
-	return job, nil
-}
-
 // isJobActive checks if a Job is currently running
 func (r *TfRunReconciler) isJobActive(job *batchv1.Job) bool {
 	return job.Status.Active > 0
@@ -754,19 +578,6 @@ func (r *TfRunReconciler) isJobSucceeded(job *batchv1.Job) bool {
 // isJobFailed checks if a Job has failed
 func (r *TfRunReconciler) isJobFailed(job *batchv1.Job) bool {
 	return job.Status.Failed > 0
-}
-
-func getTTL(env string, defaultTTL int32) int32 {
-	logger := log.Log.WithName("getTTL")
-	logger.V(1).Info("Retrieving TTL from environment", "env", env, "defaultTTL", defaultTTL)
-	if val := os.Getenv(env); val != "" {
-		ttl, err := strconv.Atoi(val)
-		if err == nil && ttl >= 600 {
-			return int32(ttl)
-		}
-		logger.V(1).Error(err, "Invalid TTL value, using default", "value", val)
-	}
-	return defaultTTL
 }
 
 // updateStatus updates the TfRun status

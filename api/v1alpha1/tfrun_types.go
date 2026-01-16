@@ -28,6 +28,8 @@ import (
 type TfRunSpec struct {
 	//+kubebuilder:validation:Required
 	ForProvider TfProviderSpec `json:"forProvider"`
+	//+kubebuilder:validation:Optional
+	Engine TfEngine `json:"engine"`
 	//+kubebuilder:validation:Required
 	Source TfSource `json:"source"`
 	//+kubebuilder:validation:Optional
@@ -66,6 +68,16 @@ type TfRunStatus struct {
 
 	// Conditions represent the latest available observations of the TfRun's state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+type TfEngine struct {
+	//+kubebuilder:validation:Optional
+	//+kubebuilder:default:="opentofu"
+	//+kubebuilder:validation:Enum=terraform;opentofu
+	Type string `json:"type,omitempty"`
+	//+kubebuilder:validation:Optional
+	//+kubebuilder:default:="latest"
+	Version string `json:"version,omitempty"`
 }
 
 type TfBackend struct {
