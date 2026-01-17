@@ -57,6 +57,9 @@ type TfRunStatus struct {
 	// WorkspaceID is the Scalr workspace ID created for this TfRun
 	WorkspaceID string `json:"workspaceID,omitempty"`
 
+	// WorkspaceReady indicates whether the backend workspace is ready
+	WorkspaceReady bool `json:"workspaceReady,omitempty"`
+
 	// LastSpecHash is the hash of the spec from the last successful run
 	LastSpecHash string `json:"lastSpecHash,omitempty"`
 
@@ -140,6 +143,7 @@ type TfSource struct {
 
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="Workspace",type=string,JSONPath=".status.workspaceID"
+// +kubebuilder:printcolumn:name="WorkspaceReady",type=boolean,JSONPath=".status.workspaceReady"
 // +kubebuilder:printcolumn:name="Job",type=string,JSONPath=".status.activeJobName",priority=1
 // +kubebuilder:printcolumn:name="LastRun",type=date,JSONPath=".status.lastRunTime"
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=".status.message",priority=1

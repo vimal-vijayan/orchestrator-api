@@ -142,6 +142,7 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 		tfRun.Status.WorkspaceID = workspaceID
 		tfRun.Status.Phase = PhasePending
+		tfRun.Status.WorkspaceReady = true
 		tfRun.Status.Message = "backend workspace ensured"
 		tfRun.Status.ObservedGeneration = tfRun.Generation
 
