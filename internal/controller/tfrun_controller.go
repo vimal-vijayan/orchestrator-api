@@ -18,13 +18,10 @@ package controller
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -36,13 +33,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
-	"infra.essity.com/orchstrator-api/internal/backend"
 	"infra.essity.com/orchstrator-api/internal/bootstrapjob"
 )
 
 const (
 	// Finalizer name
-	finalizerName = "tofu-operator.io/finalizer"
+	finalizerName = "infra.essity.com/tfrun-finalizer"
 
 	// Phase constants
 	PhasePending   = "Pending"
@@ -64,23 +60,6 @@ const (
 type TfRunReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
-}
-
-func (r *TfRunReconciler) getCloudBackend(ctx context.Context, tfRun *infrav1alpha1.TfRun) (backend.CloudBackend, error) {
-	logger := log.FromContext(ctx)
-
-	if tfRun.Spec.Backend.Cloud == nil {
-		return nil, fmt.Errorf("cloud backend configuration is required")
-	}
-
-	provider := tfRun.Spec.Backend.Cloud.Provider
-	if provider == "" {
-		logger.V(1).Info("No cloud backend provider specified, defaulting to 'scalr'")
-		provider = backend.ProviderScalr
-	}
-
-	logger.V(1).Info("Getting cloud backend implementation", "provider", provider)
-	return backend.ForProvider(r.Client, provider)
 }
 
 // +kubebuilder:rbac:groups=infra.essity.com,resources=tfruns,verbs=get;list;watch;create;update;patch;delete
@@ -117,10 +96,12 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	logger.Info("TfRun fetched", "generation", tfRun.Generation, "phase", tfRun.Status.Phase, "deletionTimestamp", tfRun.DeletionTimestamp)
 
-	// Ensure finalizer is present
+	// Ensure finalizer is added, requeue if not present
 	if err := r.ensureFinalizer(ctx, tfRun); err != nil {
 		logger.Error(err, "Failed to ensure finalizer")
-		return ctrl.Result{}, err
+		return ctrl.Result{
+			Requeue: true,
+		}, err
 	}
 
 	// Handle deletion
@@ -231,12 +212,12 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, nil
 	}
 
-	logger.Info("creating new Job", "reason", "spec changed or first run", "hashChanged", tfRun.Status.LastSpecHash != currentSpecHash,"previousPhase", tfRun.Status.Phase)
+	logger.Info("creating new Job", "reason", "spec changed or first run", "hashChanged", tfRun.Status.LastSpecHash != currentSpecHash, "previousPhase", tfRun.Status.Phase)
 	logger.Info("creating new tfrun job")
 
 	// Create Scalr workspace if not already created
 	if tfRun.Status.WorkspaceID == "" && tfRun.Spec.Backend.Cloud != nil {
-		logger.Info("ensuring backend workspace exists")
+		logger.Info("Creating new backend workspace")
 		be, err := r.getCloudBackend(ctx, tfRun)
 		if err != nil {
 			logger.Error(err, "Failed to get cloud backend")
@@ -338,6 +319,7 @@ func (r *TfRunReconciler) ensureFinalizer(ctx context.Context, tfRun *infrav1alp
 	logger := log.FromContext(ctx)
 	if !controllerutil.ContainsFinalizer(tfRun, finalizerName) {
 		logger.Info("Adding finalizer", "finalizer", finalizerName)
+		// Add finalizer and update
 		controllerutil.AddFinalizer(tfRun, finalizerName)
 		if err := r.Update(ctx, tfRun); err != nil {
 			return fmt.Errorf("failed to add finalizer: %w", err)
@@ -400,7 +382,9 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 		if r.isJobFailed(job) {
 			logger.Error(nil, "Destroy Job failed, removing finalizer to prevent stuck resource")
 			// Remove finalizer even on failure to prevent stuck resources
-			return r.removeFinalizer(ctx, tfRun)
+			//TODO: I commented this to test requeueing of destroy job on failure
+			// return r.removeFinalizer(ctx, tfRun)
+			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
 		}
 
 		// Job is still running
@@ -496,62 +480,3 @@ func (r *TfRunReconciler) removeFinalizer(ctx context.Context, tfRun *infrav1alp
 	return ctrl.Result{}, nil
 }
 
-// computeSpecHash computes a hash of the TfRun spec to detect changes
-func (r *TfRunReconciler) computeSpecHash(tfRun *infrav1alpha1.TfRun) (string, error) {
-	// Create a struct with fields that should trigger a new run
-	hashInput := struct {
-		Module    string
-		Ref       string
-		Path      string
-		Vars      map[string]*apiextensionsv1.JSON
-		Arguments map[string]string
-		Backend   infrav1alpha1.TfBackend
-	}{
-		Module:    tfRun.Spec.Source.Module,
-		Ref:       tfRun.Spec.Source.Ref,
-		Path:      tfRun.Spec.Source.Path,
-		Vars:      tfRun.Spec.Vars,
-		Arguments: tfRun.Spec.Arguments,
-		Backend:   tfRun.Spec.Backend,
-	}
-
-	data, err := json.Marshal(hashInput)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal spec: %w", err)
-	}
-
-	hash := sha256.Sum256(data)
-	hashStr := fmt.Sprintf("%x", hash[:8])
-	return hashStr, nil
-}
-
-// isJobActive checks if a Job is currently running
-func (r *TfRunReconciler) isJobActive(job *batchv1.Job) bool {
-	return job.Status.Active > 0
-}
-
-// isJobSucceeded checks if a Job has succeeded
-func (r *TfRunReconciler) isJobSucceeded(job *batchv1.Job) bool {
-	return job.Status.Succeeded > 0
-}
-
-// isJobFailed checks if a Job has failed
-func (r *TfRunReconciler) isJobFailed(job *batchv1.Job) bool {
-	return job.Status.Failed > 0
-}
-
-// updateStatus updates the TfRun status
-func (r *TfRunReconciler) updateStatus(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-	logger.Info("Updating status",
-		"phase", tfRun.Status.Phase,
-		"activeJobName", tfRun.Status.ActiveJobName,
-		"message", tfRun.Status.Message,
-		"observedGeneration", tfRun.Status.ObservedGeneration)
-	if err := r.Status().Update(ctx, tfRun); err != nil {
-		logger.Error(err, "Failed to update status")
-		return ctrl.Result{}, err
-	}
-	logger.V(1).Info("Status updated successfully, requeuing after 10 seconds")
-	return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-}
