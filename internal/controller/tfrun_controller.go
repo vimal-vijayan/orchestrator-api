@@ -116,7 +116,43 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		logger.Error(err, "Failed to compute spec hash")
 		return ctrl.Result{}, err
 	}
+
 	logger.Info("Computed spec hash", "hash", currentSpecHash, "previousHash", tfRun.Status.LastSpecHash)
+
+	// Create Scalr workspace if not already created
+	if tfRun.Status.WorkspaceID == "" && tfRun.Spec.Backend.Cloud != nil {
+		logger.Info("Creating new backend workspace")
+		be, err := r.getCloudBackend(ctx, tfRun)
+		if err != nil {
+			logger.Error(err, "Failed to get cloud backend")
+			tfRun.Status.Phase = PhaseFailed
+			tfRun.Status.Message = fmt.Sprintf("Failed to get cloud backend: %v", err)
+			_, _ = r.updateStatus(ctx, tfRun)
+			return ctrl.Result{}, err
+		}
+
+		workspaceID, err := be.EnsureWorkspace(ctx, tfRun)
+		if err != nil {
+			logger.Error(err, "Failed to create Scalr workspace")
+			tfRun.Status.Phase = PhaseFailed
+			tfRun.Status.Message = fmt.Sprintf("Failed to create Scalr workspace: %v", err)
+			_, _ = r.updateStatus(ctx, tfRun)
+			return ctrl.Result{}, err
+		}
+
+		tfRun.Status.WorkspaceID = workspaceID
+		tfRun.Status.Phase = PhasePending
+		tfRun.Status.Message = "backend workspace ensured"
+		tfRun.Status.ObservedGeneration = tfRun.Generation
+
+		logger.Info("backend workspace created, updating status", "workspaceID", workspaceID)
+		if err := r.Status().Update(ctx, tfRun); err != nil {
+			logger.Error(err, "Failed to update status with workspace ID")
+			return ctrl.Result{}, err
+		}
+	} else if tfRun.Status.WorkspaceID != "" {
+		logger.Info("Using existing backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
+	}
 
 	// Check if there's an active Job
 	if tfRun.Status.ActiveJobName != "" {
@@ -214,41 +250,6 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	logger.Info("creating new Job", "reason", "spec changed or first run", "hashChanged", tfRun.Status.LastSpecHash != currentSpecHash, "previousPhase", tfRun.Status.Phase)
 	logger.Info("creating new tfrun job")
-
-	// Create Scalr workspace if not already created
-	if tfRun.Status.WorkspaceID == "" && tfRun.Spec.Backend.Cloud != nil {
-		logger.Info("Creating new backend workspace")
-		be, err := r.getCloudBackend(ctx, tfRun)
-		if err != nil {
-			logger.Error(err, "Failed to get cloud backend")
-			tfRun.Status.Phase = PhaseFailed
-			tfRun.Status.Message = fmt.Sprintf("Failed to get cloud backend: %v", err)
-			_, _ = r.updateStatus(ctx, tfRun)
-			return ctrl.Result{}, err
-		}
-
-		workspaceID, err := be.EnsureWorkspace(ctx, tfRun)
-		if err != nil {
-			logger.Error(err, "Failed to create Scalr workspace")
-			tfRun.Status.Phase = PhaseFailed
-			tfRun.Status.Message = fmt.Sprintf("Failed to create Scalr workspace: %v", err)
-			_, _ = r.updateStatus(ctx, tfRun)
-			return ctrl.Result{}, err
-		}
-
-		tfRun.Status.WorkspaceID = workspaceID
-		tfRun.Status.Phase = PhasePending
-		tfRun.Status.Message = "backend workspace ensured"
-		tfRun.Status.ObservedGeneration = tfRun.Generation
-
-		logger.Info("backend workspace created, updating status", "workspaceID", workspaceID)
-		if err := r.Status().Update(ctx, tfRun); err != nil {
-			logger.Error(err, "Failed to update status with workspace ID")
-			return ctrl.Result{}, err
-		}
-	} else if tfRun.Status.WorkspaceID != "" {
-		logger.Info("Using existing backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
-	}
 
 	// Create a new apply Job
 	logger.Info("Creating new tofu apply Job")
@@ -479,4 +480,3 @@ func (r *TfRunReconciler) removeFinalizer(ctx context.Context, tfRun *infrav1alp
 
 	return ctrl.Result{}, nil
 }
-
