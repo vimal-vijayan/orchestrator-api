@@ -240,6 +240,10 @@ func (in *TfRunStatus) DeepCopyInto(out *TfRunStatus) {
 		in, out := &in.LastRunTime, &out.LastRunTime
 		*out = (*in).DeepCopy()
 	}
+	if in.NextRunTime != nil {
+		in, out := &in.NextRunTime, &out.NextRunTime
+		*out = (*in).DeepCopy()
+	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
 		*out = make([]metav1.Condition, len(*in))

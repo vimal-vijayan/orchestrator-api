@@ -245,6 +245,10 @@ spec:
                 description: Message provides additional information about the current
                   state
                 type: string
+              nextRunTime:
+                description: Next RunTime is the timestamp of the next scheduled run
+                format: date-time
+                type: string
               observedGeneration:
                 description: ObservedGeneration reflects the generation of the most
                   recently observed TfRun

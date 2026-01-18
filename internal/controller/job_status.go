@@ -45,7 +45,6 @@ func (r *TfRunReconciler) updateJobStatus(ctx context.Context, tfRun *infrav1alp
 	}
 
 	// Update the TfRun status based on the Job status
-	logger.Info("checking job status")
 	if r.isJobActive(job) {
 		logger.Info("job is still active", "jobName", job.Name)
 		tfRun.Status.Phase = PhaseRunning
@@ -62,6 +61,8 @@ func (r *TfRunReconciler) updateJobStatus(ctx context.Context, tfRun *infrav1alp
 		tfRun.Status.Phase = PhaseSucceeded
 		tfRun.Status.Message = fmt.Sprintf("job %s has succeeded", job.Name)
 		tfRun.Status.LastSuccessfulJobName = job.Name
+		tfRun.Status.LastRunTime = &metav1.Time{Time: metav1.Now().Time}
+		tfRun.Status.NextRunTime = nil
 		tfRun.Status.ActiveJobName = ""
 		meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
 			Type:               ConditionTypeApplied,

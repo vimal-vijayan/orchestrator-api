@@ -72,6 +72,9 @@ type TfRunStatus struct {
 	// LastRunTime is the timestamp of the last run
 	LastRunTime *metav1.Time `json:"lastRunTime,omitempty"`
 
+	// Next RunTime is the timestamp of the next scheduled run
+	NextRunTime *metav1.Time `json:"nextRunTime,omitempty"`
+
 	// Message provides additional information about the current state
 	Message string `json:"message,omitempty"`
 

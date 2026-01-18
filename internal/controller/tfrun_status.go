@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"time"
 
 	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -22,5 +21,6 @@ func (r *TfRunReconciler) updateStatus(ctx context.Context, tfRun *infrav1alpha1
 		return ctrl.Result{}, err
 	}
 	logger.V(1).Info("Status updated successfully, requeuing after 5 Minute")
-	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	// return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	return ctrl.Result{}, nil
 }
