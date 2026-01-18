@@ -29,6 +29,8 @@ type TfRunSpec struct {
 	//+kubebuilder:validation:Required
 	ForProvider TfProviderSpec `json:"forProvider"`
 	//+kubebuilder:validation:Optional
+	RunInterval *metav1.Duration `json:"runInterval,omitempty"`
+	//+kubebuilder:validation:Optional
 	Engine TfEngine `json:"engine"`
 	//+kubebuilder:validation:Required
 	Source TfSource `json:"source"`
@@ -53,6 +55,9 @@ type TfRunStatus struct {
 
 	// ActiveJobName is the name of the currently running Job
 	ActiveJobName string `json:"activeJobName,omitempty"`
+
+	// LastSuccessfulJobName is the name of the last successful Job
+	LastSuccessfulJobName string `json:"lastSuccessfulJobName,omitempty"`
 
 	// WorkspaceID is the Scalr workspace ID created for this TfRun
 	WorkspaceID string `json:"workspaceID,omitempty"`
@@ -107,6 +112,8 @@ type CloudBackend struct {
 	EnvironmentID string `json:"environmentId,omitempty"`
 	//+kubebuilder:validation:Optional
 	AgentPoolID string `json:"agentPoolId,omitempty"`
+	//+kubebuilder:validation:Optional
+	DeleteProtection bool `json:"deleteProtection,omitempty"`
 }
 
 type StorageAccountBackend struct {
@@ -140,13 +147,13 @@ type TfSource struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".status.phase"
 // +kubebuilder:printcolumn:name="Workspace",type=string,JSONPath=".status.workspaceID"
 // +kubebuilder:printcolumn:name="WorkspaceReady",type=boolean,JSONPath=".status.workspaceReady"
 // +kubebuilder:printcolumn:name="Job",type=string,JSONPath=".status.activeJobName",priority=1
 // +kubebuilder:printcolumn:name="LastRun",type=date,JSONPath=".status.lastRunTime"
 // +kubebuilder:printcolumn:name="Message",type=string,JSONPath=".status.message",priority=1
+//
 // TfRun is the Schema for the tfruns API
 type TfRun struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -157,7 +164,7 @@ type TfRun struct {
 }
 
 // +kubebuilder:object:root=true
-
+//
 // TfRunList contains a list of TfRun
 type TfRunList struct {
 	metav1.TypeMeta `json:",inline"`

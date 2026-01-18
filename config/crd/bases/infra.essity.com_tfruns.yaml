@@ -21,6 +21,9 @@ spec:
     - jsonPath: .status.workspaceID
       name: Workspace
       type: string
+    - jsonPath: .status.workspaceReady
+      name: WorkspaceReady
+      type: boolean
     - jsonPath: .status.activeJobName
       name: Job
       priority: 1
@@ -73,6 +76,8 @@ spec:
                     properties:
                       agentPoolId:
                         type: string
+                      deleteProtection:
+                        type: boolean
                       environmentId:
                         type: string
                       hostname:
@@ -126,6 +131,8 @@ spec:
                 required:
                 - credentialsSecretRef
                 type: object
+              runInterval:
+                type: string
               source:
                 description: TfSource defines the source of the Terraform configuration
                 properties:
@@ -224,6 +231,10 @@ spec:
                 description: LastSpecHash is the hash of the spec from the last successful
                   run
                 type: string
+              lastSuccessfulJobName:
+                description: LastSuccessfulJobName is the name of the last successful
+                  Job
+                type: string
               message:
                 description: Message provides additional information about the current
                   state
@@ -245,6 +256,10 @@ spec:
                 description: WorkspaceID is the Scalr workspace ID created for this
                   TfRun
                 type: string
+              workspaceReady:
+                description: WorkspaceReady indicates whether the backend workspace
+                  is ready
+                type: boolean
             type: object
         type: object
     served: true

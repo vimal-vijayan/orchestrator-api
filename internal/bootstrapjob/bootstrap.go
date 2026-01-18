@@ -34,9 +34,11 @@ const (
 	jobTypeDestroy = "destroy"
 
 	jobBackoffLimit = 3
-	// job TTL default
-	ttlSuccessDefault = int32(3600)  // 1 hour
-	ttlFailureDefault = int32(86400) // 1 day
+	// ttlSuccessDefault = int32(3600)  // 1 hour
+	// ttlFailureDefault = int32(86400) // 1 day
+	// job TTL defaults (in seconds)
+	ttlSuccessDefault = int32(120) // 2 minutes
+	ttlFailureDefault = int32(120) // 2 minutes
 )
 
 type BuildJobInterface interface {
@@ -182,10 +184,11 @@ func (b *BootstrapJob) buildJobTemplate(tfRun *infrav1alpha1.TfRun, jobName stri
 					},
 					Containers: []corev1.Container{
 						{
-							Name:       "opentofu",
-							Image:      "ghcr.io/opentofu/opentofu:latest",
-							Command:    []string{"/bin/sh", "-c"},
-							Args:       []string{tfCommand},
+							Name:    "opentofu",
+							Image:   "ghcr.io/opentofu/opentofu:latest",
+							Command: []string{"/bin/sh", "-c"},
+							// Args:    []string{tfCommand},
+							Args:       []string{"echo 'Running command: tofu plan'"},
 							WorkingDir: workingDir,
 							Env:        envVars,
 							VolumeMounts: []corev1.VolumeMount{

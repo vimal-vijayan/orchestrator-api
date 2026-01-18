@@ -21,8 +21,8 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -174,6 +174,11 @@ func (in *TfRunList) DeepCopyObject() runtime.Object {
 func (in *TfRunSpec) DeepCopyInto(out *TfRunSpec) {
 	*out = *in
 	out.ForProvider = in.ForProvider
+	if in.RunInterval != nil {
+		in, out := &in.RunInterval, &out.RunInterval
+		*out = new(v1.Duration)
+		**out = **in
+	}
 	out.Engine = in.Engine
 	out.Source = in.Source
 	in.Backend.DeepCopyInto(&out.Backend)
@@ -186,15 +191,15 @@ func (in *TfRunSpec) DeepCopyInto(out *TfRunSpec) {
 	}
 	if in.Vars != nil {
 		in, out := &in.Vars, &out.Vars
-		*out = make(map[string]*v1.JSON, len(*in))
+		*out = make(map[string]*apiextensionsv1.JSON, len(*in))
 		for key, val := range *in {
-			var outVal *v1.JSON
+			var outVal *apiextensionsv1.JSON
 			if val == nil {
 				(*out)[key] = nil
 			} else {
 				inVal := (*in)[key]
 				in, out := &inVal, &outVal
-				*out = new(v1.JSON)
+				*out = new(apiextensionsv1.JSON)
 				(*in).DeepCopyInto(*out)
 			}
 			(*out)[key] = outVal
@@ -221,7 +226,7 @@ func (in *TfRunStatus) DeepCopyInto(out *TfRunStatus) {
 	}
 	if in.Conditions != nil {
 		in, out := &in.Conditions, &out.Conditions
-		*out = make([]metav1.Condition, len(*in))
+		*out = make([]v1.Condition, len(*in))
 		for i := range *in {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
