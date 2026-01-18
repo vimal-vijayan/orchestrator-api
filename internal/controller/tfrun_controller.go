@@ -126,7 +126,6 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			return result, err
 		}
 	}
-
 	logger.Info("backend workspace already exists", "workspaceID", tfRun.Status.WorkspaceID)
 
 	// Check if there's an active Job
@@ -161,7 +160,7 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	logger.Info("creating new job", "reason", "spec changed or first run", "hashChanged", tfRun.Status.LastSpecHash != currentSpecHash, "previousPhase", tfRun.Status.Phase)
 	logger.Info("creating new tfrun job")
-	// FIXME: pass the jobEngine from tfRun spec
+
 	applyJob, err := bootstrapjob.ForEngine(r.Client, strings.ToLower(tfRun.Spec.Engine.Type), []string{})
 	if err != nil {
 		logger.Error(err, "Failed to get tofu Job builder for apply")
@@ -185,9 +184,6 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// Create the Job
 	return r.createJobAndUpdateStatus(ctx, tfRun, job, currentSpecHash)
-	//TODO: adjust requeue time based on expected job duration
-	// return r.updateStatus(ctx, tfRun)
-	// return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
