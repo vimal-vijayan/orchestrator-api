@@ -119,6 +119,7 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	logger.Info("computed spec hash", "hash", currentSpecHash, "previousHash", tfRun.Status.LastSpecHash)
+
 	// Reconcile backend workspace if not already done
 	if tfRun.Status.WorkspaceID == "" && tfRun.Spec.Backend.Cloud != nil {
 		if result, err := r.reconcileWorkspace(ctx, tfRun); err != nil {
@@ -135,65 +136,30 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return r.updateJobStatus(ctx, tfRun)
 	}
 
-	// Check the run interval before creating a new Job
-	logger.Info("checking run interval")
-	if tfRun.Spec.RunInterval != nil && tfRun.Status.LastRunTime != nil {
-		nextRunTime := tfRun.Status.LastRunTime.Add(tfRun.Spec.RunInterval.Time.Duration)
-		if time.Now().Before(nextRunTime) {
-			logger.Info("run interval not yet elapsed, requeuing", "nextRunTime", nextRunTime)
-			tfRun.Status.NextRunTime = &metav1.Time{Time: nextRunTime}
-			if err := r.Status().Update(ctx, tfRun); err != nil {
-				logger.Error(err, "Failed to update status")
-				return ctrl.Result{}, err
-			}
-			// return ctrl.Result{RequeueAfter: time.Until(nextRunTime)}, nil
-		}
+	// Check if spec has changed
+	specChanged := tfRun.Status.LastSpecHash != currentSpecHash ||
+		tfRun.Status.ObservedGeneration != tfRun.Generation
+
+	// If spec changed, create new job immediately
+	if specChanged {
+		logger.Info("Spec changed, creating new job immediately",
+			"hashChanged", tfRun.Status.LastSpecHash != currentSpecHash,
+			"generationChanged", tfRun.Status.ObservedGeneration != tfRun.Generation)
+		return r.createNewJob(ctx, tfRun, currentSpecHash)
 	}
 
-	// No active Job - decide if we need to create one
-	// Skip if spec hasn't changed and we've already processed this generation
-	if tfRun.Status.LastSpecHash == currentSpecHash &&
-		tfRun.Status.ObservedGeneration == tfRun.Generation  {
-		logger.Info("Spec unchanged and already processed, skipping reconciliation",
-			"phase", tfRun.Status.Phase,
-			"generation", tfRun.Generation,
-			"observedGeneration", tfRun.Status.ObservedGeneration,
-			"lastRunTime", tfRun.Status.LastRunTime)
-		//TODO: Tesing requeue after 2 mins, remove later
-		// return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
-		
-		
-		return ctrl.Result{}, nil
+	// Spec hasn't changed - check if we need to handle interval-based runs
+	if tfRun.Spec.RunInterval != nil {
+		return r.handleIntervalBasedRun(ctx, tfRun, currentSpecHash)
 	}
 
+	// No interval configured and spec unchanged - nothing to do
+	logger.Info("Spec unchanged and no run interval configured, skipping reconciliation",
+		"phase", tfRun.Status.Phase,
+		"generation", tfRun.Generation,
+		"observedGeneration", tfRun.Status.ObservedGeneration)
 
-
-	logger.Info("creating new job", "reason", "spec changed or first run", "hashChanged", tfRun.Status.LastSpecHash != currentSpecHash, "previousPhase", tfRun.Status.Phase)
-	logger.Info("creating new tfrun job")
-
-	applyJob, err := bootstrapjob.ForEngine(r.Client, strings.ToLower(tfRun.Spec.Engine.Type), []string{})
-	if err != nil {
-		logger.Error(err, "Failed to get tofu Job builder for apply")
-		return ctrl.Result{}, err
-	}
-	job, err := applyJob.BuildJob(ctx, tfRun, jobTypeApply)
-
-	if err != nil {
-		logger.Error(err, "failed to build job template for tfrun")
-		tfRun.Status.Phase = PhaseFailed
-		tfRun.Status.Message = fmt.Sprintf("failed to build Job: %v", err)
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
-	}
-
-	// Set TfRun as owner of the Job
-	if err := controllerutil.SetControllerReference(tfRun, job, r.Scheme); err != nil {
-		logger.Error(err, "failed to set controller reference")
-		return ctrl.Result{}, err
-	}
-
-	// Create the Job
-	return r.createJobAndUpdateStatus(ctx, tfRun, job, currentSpecHash)
+	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -370,29 +336,76 @@ func (r *TfRunReconciler) removeFinalizer(ctx context.Context, tfRun *infrav1alp
 	return ctrl.Result{}, nil
 }
 
-func (r *TfRunReconciler) IntervalStatus(tfRun *infrav1alpha1.TfRun) bool {
-	logger := log.Log.WithName("IntervalStatus")
-	// Periodic runs disabled
-	if tfRun.Spec.RunInterval == nil {
-		logger.V(1).Info("RunInterval not set; periodic runs disabled")
-		return false
-	}
-	// Cannot compute without LastRunTime
+// handleIntervalBasedRun handles periodic runs based on runInterval
+func (r *TfRunReconciler) handleIntervalBasedRun(ctx context.Context, tfRun *infrav1alpha1.TfRun, currentSpecHash string) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	// If this is the first run (no LastRunTime), set NextRunTime and return
 	if tfRun.Status.LastRunTime == nil {
-		logger.V(1).Info("LastRunTime not set yet; cannot compute NextRunTime")
-		return false
+		logger.Info("First run - no LastRunTime set yet")
+		return ctrl.Result{}, nil
 	}
 
+	// Calculate next run time
 	nextRunTime := tfRun.Status.LastRunTime.Add(tfRun.Spec.RunInterval.Time.Duration)
 
-	// Update nextRunTime in status if it's missing OR different
+	// Update NextRunTime in status if not set or different
 	if tfRun.Status.NextRunTime == nil || !tfRun.Status.NextRunTime.Time.Equal(nextRunTime) {
+		logger.Info("Updating NextRunTime in status", "nextRunTime", nextRunTime)
 		tfRun.Status.NextRunTime = &metav1.Time{Time: nextRunTime}
-		logger.Info("computed NextRunTime", "nextRunTime", nextRunTime)
-		return true
+		if err := r.Status().Update(ctx, tfRun); err != nil {
+			logger.Error(err, "Failed to update NextRunTime in status")
+			return ctrl.Result{}, err
+		}
 	}
 
-	return false
+	// Check if it's time to run
+	now := time.Now()
+	if now.Before(nextRunTime) {
+		timeUntilNext := time.Until(nextRunTime)
+		logger.Info("Run interval not yet elapsed, requeuing",
+			"nextRunTime", nextRunTime,
+			"timeUntilNext", timeUntilNext)
+		return ctrl.Result{RequeueAfter: timeUntilNext}, nil
+	}
+
+	// Time to create a new job
+	logger.Info("Run interval elapsed, creating new job",
+		"lastRunTime", tfRun.Status.LastRunTime,
+		"nextRunTime", nextRunTime,
+		"currentTime", now)
+
+	return r.createNewJob(ctx, tfRun, currentSpecHash)
+}
+
+// createNewJob creates a new apply job for the TfRun
+func (r *TfRunReconciler) createNewJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, currentSpecHash string) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	logger.Info("Creating new job")
+
+	applyJob, err := bootstrapjob.ForEngine(r.Client, strings.ToLower(tfRun.Spec.Engine.Type), []string{})
+	if err != nil {
+		logger.Error(err, "Failed to get engine Job builder for apply")
+		return ctrl.Result{}, err
+	}
+
+	job, err := applyJob.BuildJob(ctx, tfRun, jobTypeApply)
+	if err != nil {
+		logger.Error(err, "Failed to build job template for tfrun")
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("failed to build Job: %v", err)
+		_, _ = r.updateStatus(ctx, tfRun)
+		return ctrl.Result{}, err
+	}
+
+	// Set TfRun as owner of the Job
+	if err := controllerutil.SetControllerReference(tfRun, job, r.Scheme); err != nil {
+		logger.Error(err, "Failed to set controller reference")
+		return ctrl.Result{}, err
+	}
+
+	// Create the Job
+	return r.createJobAndUpdateStatus(ctx, tfRun, job, currentSpecHash)
 }
 
 // create job and update status
@@ -436,55 +449,4 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 	}
 
 	return ctrl.Result{}, nil
-}
-
-// decide if new job is needed based on run interval and last run time
-func (r *TfRunReconciler) isNewJobNeeded(tfRun *infrav1alpha1.TfRun) bool {
-	logger := log.Log.WithName("isNewJobNeeded")
-	currentSpecHash, err := r.computeSpecHash(tfRun)
-	if err != nil {
-		logger.Error(err, "failed to compute spec hash")
-		// In case of error, assume new job is needed
-		return true
-	}
-
-	// If spec has changed, new job is needed
-	if tfRun.Status.LastSpecHash != currentSpecHash || tfRun.Status.ObservedGeneration != tfRun.Generation {
-		logger.Info("spec changed, new job needed",
-			"hashChanged", tfRun.Status.LastSpecHash != currentSpecHash,
-			"generationChanged", tfRun.Status.ObservedGeneration != tfRun.Generation)
-		return true
-	}
-
-	logger.Info("spec unchanged and already processed",
-		"phase", tfRun.Status.Phase,
-		"generation", tfRun.Generation,
-		"observedGeneration", tfRun.Status.ObservedGeneration,
-		"lastRunTime", tfRun.Status.LastRunTime)
-
-	// If no run interval specified, no periodic runs needed
-	if tfRun.Spec.RunInterval == nil {
-		logger.Info("no run interval specified, no new job needed")
-		return false
-	}
-
-	// If we don't have a last run time or next run time, we can't determine if a new job is needed
-	if tfRun.Status.LastRunTime == nil || tfRun.Status.NextRunTime == nil {
-		logger.Info("missing lastRunTime or nextRunTime, new job may be needed")
-		return true
-	}
-
-	if tfRun.Status.LastRunTime != nil || tfRun.Status.NextRunTime != nil {
-		return ctrl.Result{RequeueAfter: time.Until(tfRun.Status.NextRunTime.Time)}, nil
-	}
-
-
-	// Check if the run interval has elapsed
-	if time.Now().Before(tfRun.Status.NextRunTime.Time) {
-		logger.Info("run interval not yet elapsed", "nextRunTime", tfRun.Status.NextRunTime)
-		return false
-	}
-
-	logger.Info("run interval elapsed, new job needed", "nextRunTime", tfRun.Status.NextRunTime)
-	return true
 }
