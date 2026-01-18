@@ -132,7 +132,13 @@ spec:
                 - credentialsSecretRef
                 type: object
               runInterval:
-                type: string
+                description: RunInterval *metav1.Duration `json:"runInterval,omitempty"`
+                properties:
+                  cron:
+                    type: string
+                  time:
+                    type: string
+                type: object
               source:
                 description: TfSource defines the source of the Terraform configuration
                 properties:

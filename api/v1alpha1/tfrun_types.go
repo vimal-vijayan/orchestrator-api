@@ -29,7 +29,8 @@ type TfRunSpec struct {
 	//+kubebuilder:validation:Required
 	ForProvider TfProviderSpec `json:"forProvider"`
 	//+kubebuilder:validation:Optional
-	RunInterval *metav1.Duration `json:"runInterval,omitempty"`
+	// RunInterval *metav1.Duration `json:"runInterval,omitempty"`
+	RunInterval *Duration `json:"runInterval,omitempty"`
 	//+kubebuilder:validation:Optional
 	Engine TfEngine `json:"engine"`
 	//+kubebuilder:validation:Required
@@ -76,6 +77,11 @@ type TfRunStatus struct {
 
 	// Conditions represent the latest available observations of the TfRun's state
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+type Duration struct {
+	Time metav1.Duration `json:"time,omitempty"`
+	Cron string          `json:"cron,omitempty"`
 }
 
 type TfEngine struct {

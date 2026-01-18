@@ -29,3 +29,7 @@ spec:
       - name: "vijayan"
         age: 25
     another_var: "another_value"
+    another_var1: "another_value"
+    another_var2: "another_value"
+    another_var3: "another_value"
+    another_var4: "another_value"

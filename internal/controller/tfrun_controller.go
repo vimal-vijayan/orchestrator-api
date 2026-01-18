@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
@@ -81,7 +82,7 @@ type TfRunReconciler struct {
 // 6. Implements idempotency - does not recreate Jobs unnecessarily
 func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("=== Reconciliation started ===", "namespace", req.Namespace, "name", req.Name)
+	logger.Info("=== Reconciliation Started ===", "namespace", req.Namespace, "name", req.Name)
 
 	// Fetch the TfRun instance
 	tfRun := &infrav1alpha1.TfRun{}
@@ -98,7 +99,7 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// Ensure finalizer is added, requeue if not present
 	if err := r.ensureFinalizer(ctx, tfRun); err != nil {
-		logger.Error(err, "Failed to ensure finalizer")
+		logger.Error(err, "failed to ensure finalizer")
 		return ctrl.Result{
 			Requeue: true,
 		}, err
@@ -110,151 +111,36 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	}
 
 	// Compute current spec hash
-	logger.V(1).Info("Computing spec hash")
+	logger.V(1).Info("computing spec hash")
 	currentSpecHash, err := r.computeSpecHash(tfRun)
 	if err != nil {
-		logger.Error(err, "Failed to compute spec hash")
+		logger.Error(err, "failed to compute spec hash")
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("Computed spec hash", "hash", currentSpecHash, "previousHash", tfRun.Status.LastSpecHash)
-
-	// Create Scalr workspace if not already created
-	// if tfRun.Status.WorkspaceID == "" && tfRun.Spec.Backend.Cloud != nil {
-	// 	logger.Info("Creating new backend workspace")
-	// 	be, err := r.getCloudBackend(ctx, tfRun)
-	// 	if err != nil {
-	// 		logger.Error(err, "Failed to get cloud backend")
-	// 		tfRun.Status.Phase = PhaseFailed
-	// 		tfRun.Status.Message = fmt.Sprintf("Failed to get cloud backend: %v", err)
-	// 		_, _ = r.updateStatus(ctx, tfRun)
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	workspaceID, err := be.EnsureWorkspace(ctx, tfRun)
-	// 	if err != nil {
-	// 		logger.Error(err, "Failed to create Scalr workspace")
-	// 		tfRun.Status.Phase = PhaseFailed
-	// 		tfRun.Status.Message = fmt.Sprintf("Failed to create Scalr workspace: %v", err)
-	// 		_, _ = r.updateStatus(ctx, tfRun)
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	tfRun.Status.WorkspaceID = workspaceID
-	// 	tfRun.Status.Phase = PhasePending
-	// 	tfRun.Status.WorkspaceReady = true
-	// 	tfRun.Status.Message = "backend workspace ensured"
-	// 	tfRun.Status.ObservedGeneration = tfRun.Generation
-
-	// 	logger.Info("backend workspace created, updating status", "workspaceID", workspaceID)
-	// 	if err := r.Status().Update(ctx, tfRun); err != nil {
-	// 		logger.Error(err, "Failed to update status with workspace ID")
-	// 		return ctrl.Result{}, err
-	// 	}
-	// } else if tfRun.Status.WorkspaceID != "" {
-	// 	logger.Info("Using existing backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
-	// }
-
+	logger.Info("computed spec hash", "hash", currentSpecHash, "previousHash", tfRun.Status.LastSpecHash)
+	// Reconcile backend workspace if not already done
 	if tfRun.Status.WorkspaceID == "" && tfRun.Spec.Backend.Cloud != nil {
 		if result, err := r.reconcileWorkspace(ctx, tfRun); err != nil {
-			logger.Error(err, "Failed to reconcile backend workspace")
+			logger.Error(err, "failed to reconcile backend workspace")
 			return result, err
 		}
-	} else {
-		logger.Info("Backend workspace already exists", "workspaceID", tfRun.Status.WorkspaceID)
 	}
 
+	logger.Info("backend workspace already exists", "workspaceID", tfRun.Status.WorkspaceID)
+
 	// Check if there's an active Job
-	logger.Info("ActiveJobName check", "activeJobName", tfRun.Status.ActiveJobName)
+	logger.Info("active job name check", "activeJobName", tfRun.Status.ActiveJobName)
 	if tfRun.Status.ActiveJobName != "" {
-		// Track the active Job
-		job := &batchv1.Job{}
-		jobKey := types.NamespacedName{
-			Name:      tfRun.Status.ActiveJobName,
-			Namespace: tfRun.Namespace,
-		}
-
-		if err := r.Get(ctx, jobKey, job); err != nil {
-			if apierrors.IsNotFound(err) {
-				// Job was deleted, clear active job name
-				logger.Info("Active job no longer exists", "jobName", tfRun.Status.ActiveJobName)
-				tfRun.Status.ActiveJobName = ""
-				tfRun.Status.Phase = PhaseFailed
-				tfRun.Status.Message = "Job was deleted unexpectedly"
-				return r.updateStatus(ctx, tfRun)
-			}
-			logger.Error(err, "Failed to get active Job")
-			return ctrl.Result{}, err
-		}
-
-		// Update status based on Job state
-		logger.V(1).Info("Checking Job status", "active", job.Status.Active, "succeeded", job.Status.Succeeded, "failed", job.Status.Failed)
-		if r.isJobActive(job) {
-			logger.Info("Job is active", "jobName", job.Name)
-			tfRun.Status.Phase = PhaseRunning
-			tfRun.Status.Message = fmt.Sprintf("Job %s is running", job.Name)
-			meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
-				Type:               ConditionTypeApplied,
-				Status:             metav1.ConditionFalse,
-				Reason:             "InProgress",
-				Message:            "tofu Job is running",
-				ObservedGeneration: tfRun.Generation,
-			})
-		} else if r.isJobSucceeded(job) {
-			logger.Info("Job succeeded", "jobName", job.Name)
-			tfRun.Status.Phase = PhaseSucceeded
-			//FIXME: remove the logger line below
-			logger.Info("Setting active job name to empty after success")
-			tfRun.Status.ActiveJobName = ""
-			tfRun.Status.LastSuccessfulJobName = job.Name
-			tfRun.Status.LastSpecHash = currentSpecHash
-			tfRun.Status.LastRunTime = &metav1.Time{Time: time.Now()}
-			tfRun.Status.Message = "tofu apply succeeded"
-			meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
-				Type:               ConditionTypeApplied,
-				Status:             metav1.ConditionTrue,
-				Reason:             "ApplySucceeded",
-				Message:            "tofu apply completed successfully",
-				ObservedGeneration: tfRun.Generation,
-			})
-			meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
-				Type:               ConditionTypeReady,
-				Status:             metav1.ConditionTrue,
-				Reason:             "Ready",
-				Message:            "tofuRun is ready",
-				ObservedGeneration: tfRun.Generation,
-			})
-		} else if r.isJobFailed(job) {
-			logger.Info("Job failed", "jobName", job.Name)
-			tfRun.Status.Phase = PhaseFailed
-			tfRun.Status.ActiveJobName = ""
-			tfRun.Status.LastSpecHash = currentSpecHash
-			tfRun.Status.Message = "apply failed"
-			meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
-				Type:               ConditionTypeApplied,
-				Status:             metav1.ConditionFalse,
-				Reason:             "ApplyFailed",
-				Message:            "apply failed",
-				ObservedGeneration: tfRun.Generation,
-			})
-			meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
-				Type:               ConditionTypeReady,
-				Status:             metav1.ConditionFalse,
-				Reason:             "Failed",
-				Message:            "tofuRun failed",
-				ObservedGeneration: tfRun.Generation,
-			})
-		}
-		tfRun.Status.ObservedGeneration = tfRun.Generation
-		return r.updateStatus(ctx, tfRun)
+		return r.updateJobStatus(ctx, tfRun)
 	}
 
 	// Check the run interval before creating a new Job
 	logger.Info("checking run interval")
 	if tfRun.Spec.RunInterval != nil && tfRun.Status.LastRunTime != nil {
-		nextRunTime := tfRun.Status.LastRunTime.Add(tfRun.Spec.RunInterval.Duration)
+		nextRunTime := tfRun.Status.LastRunTime.Add(tfRun.Spec.RunInterval.Time.Duration)
 		if time.Now().Before(nextRunTime) {
-			logger.Info("Run interval not yet elapsed, requeuing", "nextRunTime", nextRunTime)
+			logger.Info("run interval not yet elapsed, requeuing", "nextRunTime", nextRunTime)
 			// return ctrl.Result{RequeueAfter: time.Until(nextRunTime)}, nil
 		}
 	}
@@ -269,18 +155,14 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			"observedGeneration", tfRun.Status.ObservedGeneration,
 			"lastRunTime", tfRun.Status.LastRunTime)
 		//TODO: Tesing requeue after 2 mins, remove later
-		return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
-		// return ctrl.Result{}, nil
+		// return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
+		return ctrl.Result{}, nil
 	}
 
 	logger.Info("creating new job", "reason", "spec changed or first run", "hashChanged", tfRun.Status.LastSpecHash != currentSpecHash, "previousPhase", tfRun.Status.Phase)
 	logger.Info("creating new tfrun job")
-
-	// Create a new apply Job
-	logger.Info("Creating new tofu apply Job")
-	// job, err := r.buildtofuJob(ctx, tfRun, jobTypeApply)
 	// FIXME: pass the jobEngine from tfRun spec
-	applyJob, err := bootstrapjob.ForEngine(r.Client, "opentofu", []string{})
+	applyJob, err := bootstrapjob.ForEngine(r.Client, strings.ToLower(tfRun.Spec.Engine.Type), []string{})
 	if err != nil {
 		logger.Error(err, "Failed to get tofu Job builder for apply")
 		return ctrl.Result{}, err
@@ -288,54 +170,23 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	job, err := applyJob.BuildJob(ctx, tfRun, jobTypeApply)
 
 	if err != nil {
-		logger.Error(err, "Failed to build tofu Job")
+		logger.Error(err, "failed to build job template for tfrun")
 		tfRun.Status.Phase = PhaseFailed
-		tfRun.Status.Message = fmt.Sprintf("Failed to build Job: %v", err)
+		tfRun.Status.Message = fmt.Sprintf("failed to build Job: %v", err)
 		_, _ = r.updateStatus(ctx, tfRun)
 		return ctrl.Result{}, err
 	}
 
 	// Set TfRun as owner of the Job
 	if err := controllerutil.SetControllerReference(tfRun, job, r.Scheme); err != nil {
-		logger.Error(err, "Failed to set controller reference")
+		logger.Error(err, "failed to set controller reference")
 		return ctrl.Result{}, err
 	}
 
 	// Create the Job
-	if err := r.Create(ctx, job); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			logger.Info("Job already exists", "jobName", job.Name)
-			tfRun.Status.ActiveJobName = job.Name
-			tfRun.Status.Phase = PhaseRunning
-			tfRun.Status.ObservedGeneration = tfRun.Generation
-			return r.updateStatus(ctx, tfRun)
-		}
-		logger.Error(err, "Failed to create Job")
-		tfRun.Status.Phase = PhaseFailed
-		tfRun.Status.Message = fmt.Sprintf("Failed to create Job: %v", err)
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
-	}
-
-	logger.Info("created tfrun job", "jobName", job.Name)
-	tfRun.Status.ActiveJobName = job.Name
-	tfRun.Status.Phase = PhaseRunning
-	tfRun.Status.ObservedGeneration = tfRun.Generation
-	tfRun.Status.Message = fmt.Sprintf("Created Job %s", job.Name)
-	meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
-		Type:               ConditionTypeApplied,
-		Status:             metav1.ConditionFalse,
-		Reason:             "JobCreated",
-		Message:            "tofu Job created",
-		ObservedGeneration: tfRun.Generation,
-	})
-
-	if _, err := r.updateStatus(ctx, tfRun); err != nil {
-		return ctrl.Result{}, err
-	}
-
+	return r.createJobAndUpdateStatus(ctx, tfRun, job, currentSpecHash)
 	//TODO: adjust requeue time based on expected job duration
-	return r.updateStatus(ctx, tfRun)
+	// return r.updateStatus(ctx, tfRun)
 	// return ctrl.Result{RequeueAfter: 1 * time.Minute}, nil
 }
 
@@ -508,6 +359,49 @@ func (r *TfRunReconciler) removeFinalizer(ctx context.Context, tfRun *infrav1alp
 		logger.Info("Finalizer removed successfully")
 	} else {
 		logger.V(1).Info("Finalizer already removed")
+	}
+
+	return ctrl.Result{}, nil
+}
+
+// create job and update status
+func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *infrav1alpha1.TfRun, job *batchv1.Job, currentSpecHash string) (ctrl.Result, error) {
+
+	logger := log.FromContext(ctx)
+
+	// Create the Job
+	if err := r.Create(ctx, job); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			logger.Info("job already exists", "jobName", job.Name)
+			tfRun.Status.ActiveJobName = job.Name
+			tfRun.Status.Phase = PhaseRunning
+			tfRun.Status.ObservedGeneration = tfRun.Generation
+			return r.updateStatus(ctx, tfRun)
+		}
+		logger.Error(err, "Failed to create Job")
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("Failed to create Job: %v", err)
+		_, _ = r.updateStatus(ctx, tfRun)
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("created tfrun job", "jobName", job.Name)
+	tfRun.Status.ActiveJobName = job.Name
+	tfRun.Status.LastSpecHash = currentSpecHash
+	tfRun.Status.Phase = PhaseRunning
+	tfRun.Status.ObservedGeneration = tfRun.Generation
+	tfRun.Status.Message = fmt.Sprintf("Created Job %s", job.Name)
+	meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
+		Type:               ConditionTypeApplied,
+		Status:             metav1.ConditionFalse,
+		Reason:             "JobCreated",
+		Message:            "tofu Job created",
+		ObservedGeneration: tfRun.Generation,
+	})
+
+	if err := r.Status().Update(ctx, tfRun); err != nil {
+		logger.Error(err, "failed to update TfRun status after job creation")
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
