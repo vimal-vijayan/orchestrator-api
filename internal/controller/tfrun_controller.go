@@ -365,7 +365,6 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 	return ctrl.Result{}, nil
 }
 
-
 func (r *TfRunReconciler) deleteRemoteWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun) error {
 	logger := log.FromContext(ctx)
 
@@ -435,4 +434,3 @@ func (r *TfRunReconciler) cleanupWorkspaceAndRemoveFinalizer(ctx context.Context
 
 	return r.removeFinalizer(ctx, tfRun)
 }
-
