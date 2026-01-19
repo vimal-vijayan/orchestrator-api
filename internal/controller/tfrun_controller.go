@@ -75,11 +75,17 @@ type TfRunReconciler struct {
 //
 // The controller:
 // 1. Ensures finalizer is present for proper cleanup
-// 2. Handles deletion by creating destroy Jobs
-// 3. Computes spec hash to detect changes
-// 4. Creates and tracks tofu Jobs (init/plan/apply)
-// 5. Updates status based on Job lifecycle
-// 6. Implements idempotency - does not recreate Jobs unnecessarily
+// 2. Handle creation and deletion of remote workspaces ( for cloud backends / azure / aws )
+// 3. Handles deletion by creating destroy Jobs
+// 4. Computes spec hash to detect changes
+// 5. Creates and tracks tofu Jobs (init/plan/apply) ( TTL based jobs )
+// 6. Updates status based on Job lifecycle 
+// 7. Implements idempotency - does not recreate Jobs unnecessarily ( Based on spec has and Interval )
+// TODO: 
+// 1. Import existing state handling
+// 2. workspace idempotency handling
+// 3. workspace delete lock handling ( only for cloud backends )
+
 func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("=== Reconciliation Started ===", "namespace", req.Namespace, "name", req.Name)
