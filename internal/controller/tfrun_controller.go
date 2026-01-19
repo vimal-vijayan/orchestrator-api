@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -197,62 +198,6 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 	logger := log.FromContext(ctx)
 	logger.Info("Handling TfRun deletion")
 
-	// Check if there's an active destroy Job
-	// if tfRun.Status.ActiveJobName != "" {
-	// 	// Check Job status
-	// 	job := &batchv1.Job{}
-	// 	jobKey := types.NamespacedName{
-	// 		Name:      tfRun.Status.ActiveJobName,
-	// 		Namespace: tfRun.Namespace,
-	// 	}
-
-	// 	if err := r.Get(ctx, jobKey, job); err != nil {
-	// 		if apierrors.IsNotFound(err) {
-	// 			// Job was deleted, proceed with finalizer removal
-	// 			logger.Info("Destroy job no longer exists, removing finalizer")
-	// 			return r.removeFinalizer(ctx, tfRun)
-	// 		}
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	// Check if destroy Job succeeded
-	// 	if r.isJobSucceeded(job) {
-	// 		logger.Info("Destroy Job succeeded")
-
-	// 		// Delete backend workspace after successful destroy
-	// 		if tfRun.Status.WorkspaceID != "" && tfRun.Spec.Backend.Cloud != nil {
-	// 			logger.Info("Deleting backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
-	// 			be, err := r.getCloudBackend(ctx, tfRun)
-	// 			if err != nil {
-	// 				logger.Error(err, "Failed to get cloud backend for workspace deletion")
-	// 				// Don't fail the deletion if backend retrieval fails
-	// 			} else {
-	// 				if err := be.DeleteWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID); err != nil {
-	// 					logger.Error(err, "Failed to delete backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
-	// 					// Don't fail the deletion if workspace deletion fails
-	// 				} else {
-	// 					logger.Info("remote workspace deleted successfully")
-	// 				}
-	// 			}
-	// 		}
-
-	// 		return r.removeFinalizer(ctx, tfRun)
-	// 	}
-
-	// 	// Check if destroy Job failed
-	// 	if r.isJobFailed(job) {
-	// 		logger.Error(nil, "Destroy Job failed, removing finalizer to prevent stuck resource")
-	// 		// Remove finalizer even on failure to prevent stuck resources
-	// 		//TODO: I commented this to test requeueing of destroy job on failure
-	// 		// return r.removeFinalizer(ctx, tfRun)
-	// 		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
-	// 	}
-
-	// 	// Job is still running
-	// 	logger.Info("Destroy Job is still running", "jobName", job.Name)
-	// 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
-	// }
-
 	if tfRun.Status.ActiveJobName != "" {
 		logger.Info("An active destroy job is already present", "jobName", tfRun.Status.ActiveJobName)
 		return r.handleDestroyJob(ctx, tfRun)
@@ -263,57 +208,10 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 		logger.Error(err, "failed to compute spec hash for destroy job creation")
 		return ctrl.Result{}, err
 	}
+
 	// No active destroy Job - create one
 	logger.Info("creating destroy Job")
 	return r.createNewJob(ctx, tfRun, currentSpecHash, jobTypeDestroy)
-	// destroyJob, err := bootstrapjob.ForEngine(r.Client, "opentofu", []string{})
-	// if err != nil {
-	// 	logger.Error(err, "Failed to get tofu Job builder for destroy")
-	// 	return ctrl.Result{}, err
-	// }
-
-	// job, err := destroyJob.BuildJob(ctx, tfRun, jobTypeDestroy)
-	// if err != nil {
-	// 	logger.Error(err, "Failed to build destroy Job")
-	// 	return ctrl.Result{}, err
-	// }
-
-	// // Set TfRun as owner
-	// if err := controllerutil.SetControllerReference(tfRun, job, r.Scheme); err != nil {
-	// 	return ctrl.Result{}, err
-	// }
-
-	// // Create the destroy Job
-	// if err := r.Create(ctx, job); err != nil {
-	// 	if apierrors.IsAlreadyExists(err) {
-	// 		logger.Info("Destroy Job already exists", "jobName", job.Name)
-	// 		// Update status to track the job
-	// 		tfRun.Status.ActiveJobName = job.Name
-	// 		tfRun.Status.Phase = PhaseRunning
-	// 		if err := r.Status().Update(ctx, tfRun); err != nil {
-	// 			logger.V(1).Info("Failed to update status (resource may be deleted)", "error", err)
-	// 		}
-	// 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-	// 	}
-	// 	return ctrl.Result{}, err
-	// }
-
-	// logger.Info("Created destroy Job", "jobName", job.Name)
-	// tfRun.Status.ActiveJobName = job.Name
-	// tfRun.Status.Phase = PhaseRunning
-	// tfRun.Status.Message = fmt.Sprintf("Created destroy Job %s", job.Name)
-	// meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
-	// 	Type:               ConditionTypeDestroyed,
-	// 	Status:             metav1.ConditionFalse,
-	// 	Reason:             "DestroyJobCreated",
-	// 	Message:            "tofu destroy Job created",
-	// 	ObservedGeneration: tfRun.Generation,
-	// })
-	// if err := r.Status().Update(ctx, tfRun); err != nil {
-	// 	logger.V(1).Info("Failed to update status (resource may be deleted)", "error", err)
-	// }
-
-	// return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
 }
 
 // removeFinalizer removes the finalizer with retry logic
@@ -466,3 +364,75 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 
 	return ctrl.Result{}, nil
 }
+
+
+func (r *TfRunReconciler) deleteRemoteWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun) error {
+	logger := log.FromContext(ctx)
+
+	be, err := r.getCloudBackend(ctx, tfRun)
+	if err != nil {
+		logger.Error(err, "failed to get cloud backend for workspace cleanup")
+		return err
+	}
+
+	err = be.DeleteWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID)
+	if err != nil {
+		logger.Error(err, "failed to delete remote workspace during TfRun deletion")
+		return err
+	}
+
+	logger.Info("remote workspace deleted successfully", "workspaceID", tfRun.Status.WorkspaceID)
+	return nil
+}
+
+// update destroy job status
+func (r *TfRunReconciler) handleDestroyJob(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
+
+	logger := log.FromContext(ctx)
+
+	job := &batchv1.Job{}
+	jobKey := types.NamespacedName{
+		Namespace: tfRun.Namespace,
+		Name:      tfRun.Status.ActiveJobName,
+	}
+
+	if err := r.Get(ctx, jobKey, job); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info(jobNotFoundMessage, "jobName", tfRun.Status.ActiveJobName)
+			return r.cleanupWorkspaceAndRemoveFinalizer(ctx, tfRun)
+		}
+
+		return ctrl.Result{}, err
+	}
+
+	switch {
+	case r.isJobActive(job):
+		tfRun.Status.Phase = "Destroying"
+		return ctrl.Result{}, nil
+
+	case r.isJobSucceeded(job):
+		logger.Info("destroy job has succeeded", "jobName", job.Name)
+		return r.cleanupWorkspaceAndRemoveFinalizer(ctx, tfRun)
+
+	case r.isJobFailed(job):
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("destroy job %s has failed", job.Name)
+		return ctrl.Result{}, nil
+
+	default:
+		logger.Info("destroy job is still running", "jobName", job.Name)
+		return ctrl.Result{}, nil
+	}
+}
+
+func (r *TfRunReconciler) cleanupWorkspaceAndRemoveFinalizer(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
+	// cleanup remote workspace if not already done
+	if tfRun.Status.WorkspaceReady && tfRun.Status.WorkspaceID != "" {
+		if err := r.deleteRemoteWorkspace(ctx, tfRun); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	return r.removeFinalizer(ctx, tfRun)
+}
+
