@@ -114,6 +114,76 @@ func (r *TfRunReconciler) updateJobStatus(ctx context.Context, tfRun *infrav1alp
 	return ctrl.Result{}, nil
 }
 
+func (r *TfRunReconciler) deleteRemoteWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun) error {
+	logger := log.FromContext(ctx)
+
+	be, err := r.getCloudBackend(ctx, tfRun)
+	if err != nil {
+		logger.Error(err, "failed to get cloud backend for workspace cleanup")
+		return err
+	}
+
+	err = be.DeleteWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID)
+	if err != nil {
+		logger.Error(err, "failed to delete remote workspace during TfRun deletion")
+		return err
+	}
+
+	logger.Info("remote workspace deleted successfully", "workspaceID", tfRun.Status.WorkspaceID)
+	return nil
+}
+
+// update destroy job status
+func (r *TfRunReconciler) handleDestroyJob(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
+
+	logger := log.FromContext(ctx)
+
+	job := &batchv1.Job{}
+	jobKey := types.NamespacedName{
+		Namespace: tfRun.Namespace,
+		Name:      tfRun.Status.ActiveJobName,
+	}
+
+	if err := r.Get(ctx, jobKey, job); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info(jobNotFoundMessage, "jobName", tfRun.Status.ActiveJobName)
+			return r.cleanupWorkspaceAndRemoveFinalizer(ctx, tfRun)
+		}
+
+		return ctrl.Result{}, err
+	}
+
+	switch {
+	case r.isJobActive(job):
+		tfRun.Status.Phase = "Destroying"
+		return ctrl.Result{}, nil
+
+	case r.isJobSucceeded(job):
+		logger.Info("destroy job has succeeded", "jobName", job.Name)
+		return r.cleanupWorkspaceAndRemoveFinalizer(ctx, tfRun)
+
+	case r.isJobFailed(job):
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("destroy job %s has failed", job.Name)
+		return ctrl.Result{}, nil
+
+	default:
+		logger.Info("destroy job is still running", "jobName", job.Name)
+		return ctrl.Result{}, nil
+	}
+}
+
+func (r *TfRunReconciler) cleanupWorkspaceAndRemoveFinalizer(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
+	// cleanup remote workspace if not already done
+	if tfRun.Status.WorkspaceReady && tfRun.Status.WorkspaceID != "" {
+		if err := r.deleteRemoteWorkspace(ctx, tfRun); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	return r.removeFinalizer(ctx, tfRun)
+}
+
 // isJobActive checks if a Job is currently running
 func (r *TfRunReconciler) isJobActive(job *batchv1.Job) bool {
 	return job.Status.Active > 0

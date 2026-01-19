@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -79,9 +78,9 @@ type TfRunReconciler struct {
 // 3. Handles deletion by creating destroy Jobs
 // 4. Computes spec hash to detect changes
 // 5. Creates and tracks tofu Jobs (init/plan/apply) ( TTL based jobs )
-// 6. Updates status based on Job lifecycle 
+// 6. Updates status based on Job lifecycle
 // 7. Implements idempotency - does not recreate Jobs unnecessarily ( Based on spec has and Interval )
-// TODO: 
+// TODO:
 // 1. Import existing state handling
 // 2. workspace idempotency handling
 // 3. workspace delete lock handling ( only for cloud backends )
@@ -151,7 +150,7 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		logger.Info("Spec changed, creating new job immediately",
 			"hashChanged", tfRun.Status.LastSpecHash != currentSpecHash,
 			"generationChanged", tfRun.Status.ObservedGeneration != tfRun.Generation)
-		return r.createNewJob(ctx, tfRun, currentSpecHash)
+		return r.createNewJob(ctx, tfRun, currentSpecHash, jobTypeApply)
 	}
 
 	// Spec hasn't changed - check if we need to handle interval-based runs
@@ -199,111 +198,122 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 	logger.Info("Handling TfRun deletion")
 
 	// Check if there's an active destroy Job
+	// if tfRun.Status.ActiveJobName != "" {
+	// 	// Check Job status
+	// 	job := &batchv1.Job{}
+	// 	jobKey := types.NamespacedName{
+	// 		Name:      tfRun.Status.ActiveJobName,
+	// 		Namespace: tfRun.Namespace,
+	// 	}
+
+	// 	if err := r.Get(ctx, jobKey, job); err != nil {
+	// 		if apierrors.IsNotFound(err) {
+	// 			// Job was deleted, proceed with finalizer removal
+	// 			logger.Info("Destroy job no longer exists, removing finalizer")
+	// 			return r.removeFinalizer(ctx, tfRun)
+	// 		}
+	// 		return ctrl.Result{}, err
+	// 	}
+
+	// 	// Check if destroy Job succeeded
+	// 	if r.isJobSucceeded(job) {
+	// 		logger.Info("Destroy Job succeeded")
+
+	// 		// Delete backend workspace after successful destroy
+	// 		if tfRun.Status.WorkspaceID != "" && tfRun.Spec.Backend.Cloud != nil {
+	// 			logger.Info("Deleting backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
+	// 			be, err := r.getCloudBackend(ctx, tfRun)
+	// 			if err != nil {
+	// 				logger.Error(err, "Failed to get cloud backend for workspace deletion")
+	// 				// Don't fail the deletion if backend retrieval fails
+	// 			} else {
+	// 				if err := be.DeleteWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID); err != nil {
+	// 					logger.Error(err, "Failed to delete backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
+	// 					// Don't fail the deletion if workspace deletion fails
+	// 				} else {
+	// 					logger.Info("remote workspace deleted successfully")
+	// 				}
+	// 			}
+	// 		}
+
+	// 		return r.removeFinalizer(ctx, tfRun)
+	// 	}
+
+	// 	// Check if destroy Job failed
+	// 	if r.isJobFailed(job) {
+	// 		logger.Error(nil, "Destroy Job failed, removing finalizer to prevent stuck resource")
+	// 		// Remove finalizer even on failure to prevent stuck resources
+	// 		//TODO: I commented this to test requeueing of destroy job on failure
+	// 		// return r.removeFinalizer(ctx, tfRun)
+	// 		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+	// 	}
+
+	// 	// Job is still running
+	// 	logger.Info("Destroy Job is still running", "jobName", job.Name)
+	// 	return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+	// }
+
 	if tfRun.Status.ActiveJobName != "" {
-		// Check Job status
-		job := &batchv1.Job{}
-		jobKey := types.NamespacedName{
-			Name:      tfRun.Status.ActiveJobName,
-			Namespace: tfRun.Namespace,
-		}
-
-		if err := r.Get(ctx, jobKey, job); err != nil {
-			if apierrors.IsNotFound(err) {
-				// Job was deleted, proceed with finalizer removal
-				logger.Info("Destroy job no longer exists, removing finalizer")
-				return r.removeFinalizer(ctx, tfRun)
-			}
-			return ctrl.Result{}, err
-		}
-
-		// Check if destroy Job succeeded
-		if r.isJobSucceeded(job) {
-			logger.Info("Destroy Job succeeded")
-
-			// Delete backend workspace after successful destroy
-			if tfRun.Status.WorkspaceID != "" && tfRun.Spec.Backend.Cloud != nil {
-				logger.Info("Deleting backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
-				be, err := r.getCloudBackend(ctx, tfRun)
-				if err != nil {
-					logger.Error(err, "Failed to get cloud backend for workspace deletion")
-					// Don't fail the deletion if backend retrieval fails
-				} else {
-					if err := be.DeleteWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID); err != nil {
-						logger.Error(err, "Failed to delete backend workspace", "workspaceID", tfRun.Status.WorkspaceID)
-						// Don't fail the deletion if workspace deletion fails
-					} else {
-						logger.Info("remote workspace deleted successfully")
-					}
-				}
-			}
-
-			return r.removeFinalizer(ctx, tfRun)
-		}
-
-		// Check if destroy Job failed
-		if r.isJobFailed(job) {
-			logger.Error(nil, "Destroy Job failed, removing finalizer to prevent stuck resource")
-			// Remove finalizer even on failure to prevent stuck resources
-			//TODO: I commented this to test requeueing of destroy job on failure
-			// return r.removeFinalizer(ctx, tfRun)
-			return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
-		}
-
-		// Job is still running
-		logger.Info("Destroy Job is still running", "jobName", job.Name)
-		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+		logger.Info("An active destroy job is already present", "jobName", tfRun.Status.ActiveJobName)
+		return r.handleDestroyJob(ctx, tfRun)
 	}
 
+	currentSpecHash, err := r.computeSpecHash(tfRun)
+	if err != nil {
+		logger.Error(err, "failed to compute spec hash for destroy job creation")
+		return ctrl.Result{}, err
+	}
 	// No active destroy Job - create one
-	logger.Info("Creating tofu destroy Job")
-	destroyJob, err := bootstrapjob.ForEngine(r.Client, "opentofu", []string{})
-	if err != nil {
-		logger.Error(err, "Failed to get tofu Job builder for destroy")
-		return ctrl.Result{}, err
-	}
+	logger.Info("creating destroy Job")
+	return r.createNewJob(ctx, tfRun, currentSpecHash, jobTypeDestroy)
+	// destroyJob, err := bootstrapjob.ForEngine(r.Client, "opentofu", []string{})
+	// if err != nil {
+	// 	logger.Error(err, "Failed to get tofu Job builder for destroy")
+	// 	return ctrl.Result{}, err
+	// }
 
-	job, err := destroyJob.BuildJob(ctx, tfRun, jobTypeDestroy)
-	if err != nil {
-		logger.Error(err, "Failed to build destroy Job")
-		return ctrl.Result{}, err
-	}
+	// job, err := destroyJob.BuildJob(ctx, tfRun, jobTypeDestroy)
+	// if err != nil {
+	// 	logger.Error(err, "Failed to build destroy Job")
+	// 	return ctrl.Result{}, err
+	// }
 
-	// Set TfRun as owner
-	if err := controllerutil.SetControllerReference(tfRun, job, r.Scheme); err != nil {
-		return ctrl.Result{}, err
-	}
+	// // Set TfRun as owner
+	// if err := controllerutil.SetControllerReference(tfRun, job, r.Scheme); err != nil {
+	// 	return ctrl.Result{}, err
+	// }
 
-	// Create the destroy Job
-	if err := r.Create(ctx, job); err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			logger.Info("Destroy Job already exists", "jobName", job.Name)
-			// Update status to track the job
-			tfRun.Status.ActiveJobName = job.Name
-			tfRun.Status.Phase = PhaseRunning
-			if err := r.Status().Update(ctx, tfRun); err != nil {
-				logger.V(1).Info("Failed to update status (resource may be deleted)", "error", err)
-			}
-			return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
-		}
-		return ctrl.Result{}, err
-	}
+	// // Create the destroy Job
+	// if err := r.Create(ctx, job); err != nil {
+	// 	if apierrors.IsAlreadyExists(err) {
+	// 		logger.Info("Destroy Job already exists", "jobName", job.Name)
+	// 		// Update status to track the job
+	// 		tfRun.Status.ActiveJobName = job.Name
+	// 		tfRun.Status.Phase = PhaseRunning
+	// 		if err := r.Status().Update(ctx, tfRun); err != nil {
+	// 			logger.V(1).Info("Failed to update status (resource may be deleted)", "error", err)
+	// 		}
+	// 		return ctrl.Result{RequeueAfter: 10 * time.Second}, nil
+	// 	}
+	// 	return ctrl.Result{}, err
+	// }
 
-	logger.Info("Created destroy Job", "jobName", job.Name)
-	tfRun.Status.ActiveJobName = job.Name
-	tfRun.Status.Phase = PhaseRunning
-	tfRun.Status.Message = fmt.Sprintf("Created destroy Job %s", job.Name)
-	meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
-		Type:               ConditionTypeDestroyed,
-		Status:             metav1.ConditionFalse,
-		Reason:             "DestroyJobCreated",
-		Message:            "tofu destroy Job created",
-		ObservedGeneration: tfRun.Generation,
-	})
-	if err := r.Status().Update(ctx, tfRun); err != nil {
-		logger.V(1).Info("Failed to update status (resource may be deleted)", "error", err)
-	}
+	// logger.Info("Created destroy Job", "jobName", job.Name)
+	// tfRun.Status.ActiveJobName = job.Name
+	// tfRun.Status.Phase = PhaseRunning
+	// tfRun.Status.Message = fmt.Sprintf("Created destroy Job %s", job.Name)
+	// meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
+	// 	Type:               ConditionTypeDestroyed,
+	// 	Status:             metav1.ConditionFalse,
+	// 	Reason:             "DestroyJobCreated",
+	// 	Message:            "tofu destroy Job created",
+	// 	ObservedGeneration: tfRun.Generation,
+	// })
+	// if err := r.Status().Update(ctx, tfRun); err != nil {
+	// 	logger.V(1).Info("Failed to update status (resource may be deleted)", "error", err)
+	// }
 
-	return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
+	// return ctrl.Result{RequeueAfter: 10 * time.Minute}, nil
 }
 
 // removeFinalizer removes the finalizer with retry logic
@@ -381,11 +391,11 @@ func (r *TfRunReconciler) handleIntervalBasedRun(ctx context.Context, tfRun *inf
 		"nextRunTime", nextRunTime,
 		"currentTime", now)
 
-	return r.createNewJob(ctx, tfRun, currentSpecHash)
+	return r.createNewJob(ctx, tfRun, currentSpecHash, jobTypeApply)
 }
 
 // createNewJob creates a new apply job for the TfRun
-func (r *TfRunReconciler) createNewJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, currentSpecHash string) (ctrl.Result, error) {
+func (r *TfRunReconciler) createNewJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, currentSpecHash string, jobType string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Creating new job")
 
@@ -395,11 +405,11 @@ func (r *TfRunReconciler) createNewJob(ctx context.Context, tfRun *infrav1alpha1
 		return ctrl.Result{}, err
 	}
 
-	job, err := applyJob.BuildJob(ctx, tfRun, jobTypeApply)
+	job, err := applyJob.BuildJob(ctx, tfRun, jobType)
 	if err != nil {
 		logger.Error(err, "Failed to build job template for tfrun")
 		tfRun.Status.Phase = PhaseFailed
-		tfRun.Status.Message = fmt.Sprintf("failed to build Job: %v", err)
+		tfRun.Status.Message = fmt.Sprintf("failed to build job: %v", err)
 		_, _ = r.updateStatus(ctx, tfRun)
 		return ctrl.Result{}, err
 	}
