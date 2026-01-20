@@ -216,16 +216,6 @@ func (r *TfRunReconciler) handleIntervalRun(ctx context.Context, tfRun *infrav1a
 		return ctrl.Result{}, nil
 	}
 
-	// Enforce minimum interval of 45 minutes
-	if tfRun.Spec.RunInterval.Time.Duration < 45*time.Minute {
-		logger.Info("RunInterval too short, enforcing minimum of 45 minutes", "requestedInterval", tfRun.Spec.RunInterval.Time.Duration)
-		tfRun.Spec.RunInterval.Time.Duration = 45 * time.Minute
-		if err := r.Update(ctx, tfRun); err != nil {
-			logger.Error(err, "failed to update TfRun with enforced minimum RunInterval")
-			return ctrl.Result{}, err
-		}
-	}
-
 
 	if tfRun.Status.NextRunTime != nil && time.Now().Before(tfRun.Status.NextRunTime.Time) {
 		logger.Info("No action needed, TfRun is up-to-date and no interval run is due")
