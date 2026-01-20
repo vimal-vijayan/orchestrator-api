@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"time"
 
 	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -139,7 +140,7 @@ func (r *TfRunReconciler) updateStatus(ctx context.Context, tfRun *infrav1alpha1
 		"observedGeneration", tfRun.Status.ObservedGeneration)
 	if err := r.Status().Update(ctx, tfRun); err != nil {
 		logger.Error(err, "Failed to update status")
-		return ctrl.Result{}, err
+		return ctrl.Result{RequeueAfter: 2 * time.Second}, err
 	}
 	logger.V(1).Info("Status updated successfully, requeuing after 5 Minute")
 	// return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil

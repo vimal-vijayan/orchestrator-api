@@ -424,10 +424,18 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 	if err := r.Create(ctx, job); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			logger.Info("job already exists", "jobName", job.Name)
-			tfRun.Status.ActiveJobName = jobName
-			tfRun.Status.Phase = PhaseRunning
-			tfRun.Status.ObservedGeneration = tfRun.Generation
-			return r.updateStatus(ctx, tfRun)
+
+			// Re-fetch the latest version to avoid conflicts
+			latest := &infrav1alpha1.TfRun{}
+			if err := r.Get(ctx, client.ObjectKeyFromObject(tfRun), latest); err != nil {
+				logger.Error(err, "Failed to re-fetch TfRun after job already exists")
+				return ctrl.Result{}, err
+			}
+
+			latest.Status.ActiveJobName = jobName
+			latest.Status.Phase = PhaseRunning
+			latest.Status.ObservedGeneration = latest.Generation
+			return r.updateStatus(ctx, latest)
 		}
 		logger.Error(err, "failed to create Job")
 		tfRun.Status.Phase = PhaseFailed
