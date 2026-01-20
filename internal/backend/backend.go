@@ -19,6 +19,7 @@ const (
 type CloudBackend interface {
 	EnsureWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun) (workspaceID string, err error)
 	DeleteWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun, workspaceID string) error
+	GetWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun, workspaceID string) (string, error)
 }
 
 // ForProvider returns the appropriate CloudBackend implementation based on the provider string.

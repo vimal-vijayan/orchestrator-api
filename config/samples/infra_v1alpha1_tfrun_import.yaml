@@ -1,0 +1,28 @@
+apiVersion: infra.essity.com/v1alpha1
+kind: TfRun
+metadata:
+  annotations:
+    tfruns.infra.essity.com/scalr-workspace-id: "ws-v0p44d1cao0114o41"
+  labels:
+    app.kubernetes.io/name: orchestrator-api
+    app.kubernetes.io/managed-by: kustomize
+  name: tfrun-sample
+spec:
+  forProvider:
+    credentialsSecretRef: tf-credentials
+  source:
+    module: https://github.com/vimal-vijayan/my-app.git
+    ref: master
+    # path: modules/network
+  backend:
+    cloud:
+      provider: scalr
+      hostname: essity.scalr.io
+      organization: cet-launchpad
+      workspace: demo-workspace-10
+      agentPoolId: "ap-v0p08qgiq6mohe7ns"
+      environmentId: "env-v0p1nfdhe3d00h6rm"
+  arguments:
+    autoApprove: "true"
+  vars:
+    name: "orchestrator-sample"

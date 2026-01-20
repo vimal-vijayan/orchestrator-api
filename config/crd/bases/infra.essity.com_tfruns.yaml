@@ -280,6 +280,10 @@ spec:
                 description: WorkspaceID is the Scalr workspace ID created for this
                   TfRun
                 type: string
+              workspaceImport:
+                description: WorkspaceImport indicates whether the backend workspace
+                  was imported
+                type: boolean
               workspaceReady:
                 description: WorkspaceReady indicates whether the backend workspace
                   is ready

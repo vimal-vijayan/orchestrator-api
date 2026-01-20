@@ -69,6 +69,9 @@ type TfRunStatus struct {
 	// WorkspaceReady indicates whether the backend workspace is ready
 	WorkspaceReady bool `json:"workspaceReady,omitempty"`
 
+	// WorkspaceImport indicates whether the backend workspace was imported
+	WorkspaceImport bool `json:"workspaceImport,omitempty"`
+
 	// RunID is the unique identifier for the current run
 	RunID string `json:"runID,omitempty"`
 

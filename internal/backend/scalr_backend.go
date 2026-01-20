@@ -16,6 +16,30 @@ type ScalrBackend struct {
 
 func (s *ScalrBackend) EnsureWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun) (string, error) {
 
+	environmentID, err := s.getEnvironmentId(ctx, tfRun)
+	if err != nil {
+		return "", err
+	}
+
+	return s.Scalr.CreateScalrWorkspace(ctx, tfRun, environmentID)
+}
+
+func (s *ScalrBackend) DeleteWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun, workspaceID string) error {
+	return s.Scalr.DeleteScalrWorkspace(ctx, tfRun, workspaceID)
+}
+
+func (s *ScalrBackend) GetWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun, workspaceID string) (string, error) {
+
+	environmentID, err := s.getEnvironmentId(ctx, tfRun)
+	if err != nil {
+		return "", err
+	}
+
+	return s.Scalr.GetWorkspace(ctx, tfRun, workspaceID, environmentID)
+}
+
+func (s *ScalrBackend) getEnvironmentId(ctx context.Context, tfRun *v1alpha1.TfRun) (string, error) {
+
 	if tfRun.Spec.Backend.Cloud == nil {
 		return "", fmt.Errorf("backend configuration is nil")
 	}
@@ -34,9 +58,5 @@ func (s *ScalrBackend) EnsureWorkspace(ctx context.Context, tfRun *v1alpha1.TfRu
 		}
 	}
 
-	return s.Scalr.CreateScalrWorkspace(ctx, tfRun, environmentID)
-}
-
-func (s *ScalrBackend) DeleteWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun, workspaceID string) error {
-	return s.Scalr.DeleteScalrWorkspace(ctx, tfRun, workspaceID)
+	return environmentID, nil
 }
