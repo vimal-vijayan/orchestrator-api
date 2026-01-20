@@ -216,7 +216,6 @@ func (r *TfRunReconciler) handleIntervalRun(ctx context.Context, tfRun *infrav1a
 		return ctrl.Result{}, nil
 	}
 
-
 	if tfRun.Status.NextRunTime != nil && time.Now().Before(tfRun.Status.NextRunTime.Time) {
 		logger.Info("No action needed, TfRun is up-to-date and no interval run is due")
 		return ctrl.Result{RequeueAfter: time.Until(tfRun.Status.NextRunTime.Time)}, nil
