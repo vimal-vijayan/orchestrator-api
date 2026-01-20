@@ -187,8 +187,8 @@ func (b *BootstrapJob) buildJobTemplate(tfRun *infrav1alpha1.TfRun, jobName stri
 							Name:    "opentofu",
 							Image:   "ghcr.io/opentofu/opentofu:latest",
 							Command: []string{"/bin/sh", "-c"},
-							// Args:    []string{tfCommand},
-							Args:       []string{"echo 'Running command: tofu plan'"},
+							Args:    []string{tfCommand},
+							// Args:       []string{"echo 'Running command: tofu plan'"},
 							WorkingDir: workingDir,
 							Env:        envVars,
 							VolumeMounts: []corev1.VolumeMount{
