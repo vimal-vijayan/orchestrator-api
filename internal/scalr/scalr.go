@@ -163,6 +163,16 @@ func (s *Service) CreateScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 	agentPoolId := backend.AgentPoolID
 	scalrAutoApply := tfRun.Spec.Arguments
 	autoApprove, exists := scalrAutoApply["autoApprove"]
+	iacPlatform := tfRun.Spec.Engine.Type
+
+	if iacPlatform == "" {
+		iacPlatform = IacPlatform
+	}
+
+	IacVersion := tfRun.Spec.Engine.Version
+	if IacVersion == "" {
+		IacVersion = "latest"
+	}
 
 	if !exists {
 		autoApprove = "true"
@@ -179,7 +189,8 @@ func (s *Service) CreateScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 			Attributes: ScalrWorkspaceAttributes{
 				Name:        workspaceName,
 				AutoApply:   autoApprove == "true",
-				IacPlatform: IacPlatform,
+				IacPlatform: iacPlatform,
+				IacVersion:  IacVersion,
 			},
 			Relationships: ScalrWorkspaceRelationships{
 				Environment: ScalrEnvironmentRelation{
@@ -212,6 +223,8 @@ func (s *Service) CreateScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 	logger.V(1).Info("Creating Scalr workspace",
 		"scalr workspace", workspaceName,
 		"scalr environment id", environmentID,
+		"iac platform", iacPlatform,
+		"version", IacVersion,
 	)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiUrl, bytes.NewReader(payloadBytes))

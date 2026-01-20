@@ -135,6 +135,7 @@ func getEngineImage(engineType string) string {
 func (b *BootstrapJob) buildJobTemplate(tfRun *infrav1alpha1.TfRun, jobName string, jobType string, tfCommand string, envVars []corev1.EnvVar, gitCloneCmd string) *batchv1.Job {
 
 	backoffLimit := int32(jobBackoffLimit)
+	imageVersion := getTfImageVersion(b.EngineType, tfRun)
 
 	ttlSeconds := getTTL("JOB_TTL_SUCCESS", ttlSuccessDefault)
 	if jobType == jobTypeDestroy {
@@ -181,8 +182,9 @@ func (b *BootstrapJob) buildJobTemplate(tfRun *infrav1alpha1.TfRun, jobName stri
 					},
 					Containers: []corev1.Container{
 						{
-							Name:    "opentofu",
-							Image:   "ghcr.io/opentofu/opentofu:latest",
+							Name: "opentofu",
+							// Image:   "ghcr.io/opentofu/opentofu:latest",
+							Image:   imageVersion,
 							Command: []string{"/bin/sh", "-c"},
 							Args:    []string{tfCommand},
 							// Args:       []string{"echo 'Running command: tofu plan'"},
@@ -210,6 +212,29 @@ func (b *BootstrapJob) buildJobTemplate(tfRun *infrav1alpha1.TfRun, jobName stri
 	}
 
 	return job
+}
+
+func getTfImageVersion(engineType string, tfRun *infrav1alpha1.TfRun) string {
+	var version string
+	if tfRun.Spec.Engine.Version != "" {
+		version = tfRun.Spec.Engine.Version
+	} else {
+		version = "latest"
+	}
+
+	switch engineType {
+	case tofuEngine:
+		// return fmt.Sprintf("ghcr.io/opentofu/opentofu:%s", version)
+		// TODO: opentofu might not have the specific version tags, accroding to their docs
+		// https://opentofu.org/docs/intro/install/docker/
+		// we may have to create a custom docker image with the specific version, and push to our registry
+		// For now, return latest, if you use remote workspaces, the version can be set there
+		return "ghcr.io/opentofu/opentofu:latest"
+	case tfEngine:
+		return fmt.Sprintf("hashicorp/terraform:%s", version)
+	default:
+		return "ghcr.io/opentofu/opentofu:latest"
+	}
 }
 
 func getTTL(env string, defaultTTL int32) int32 {

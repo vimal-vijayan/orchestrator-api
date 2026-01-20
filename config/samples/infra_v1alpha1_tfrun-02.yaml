@@ -10,6 +10,9 @@ spec:
   #   time: 3m
   forProvider:
     credentialsSecretRef: tf-credentials
+  engine:
+    type: opentofu
+    version: "1.10.5"
   source:
     module: https://github.com/vimal-vijayan/my-app.git
     ref: master
