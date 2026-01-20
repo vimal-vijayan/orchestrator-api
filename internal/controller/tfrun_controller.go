@@ -308,8 +308,7 @@ func (r *TfRunReconciler) createNewJob(ctx context.Context, tfRun *infrav1alpha1
 		logger.Error(err, "Failed to build job template for tfrun")
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("failed to build job: %v", err)
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
+		return  r.updateStatus(ctx, tfRun)
 	}
 
 	// Set TfRun as owner of the Job
@@ -336,11 +335,11 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 			tfRun.Status.ObservedGeneration = tfRun.Generation
 			return r.updateStatus(ctx, tfRun)
 		}
-		logger.Error(err, "Failed to create Job")
+		logger.Error(err, "failed to create Job")
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("Failed to create Job: %v", err)
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
+		return r.updateStatus(ctx, tfRun)
+		
 	}
 
 	logger.Info("created tfrun job", "jobName", job.Name)
@@ -353,7 +352,7 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 		Type:               ConditionTypeApplied,
 		Status:             metav1.ConditionFalse,
 		Reason:             "JobCreated",
-		Message:            "tofu Job created",
+		Message:            "tfrun job created",
 		ObservedGeneration: tfRun.Generation,
 	})
 
