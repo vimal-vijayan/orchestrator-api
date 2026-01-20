@@ -108,12 +108,6 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return r.handleDeletion(ctx, tfRun)
 	}
 
-	// 	return r.reconcileNonDeleted(ctx, tfRun)
-	// }
-
-	// func (r *TfRunReconciler) reconcileNonDeleted(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
-	// 	logger := log.FromContext(ctx)
-
 	logger.V(1).Info("computing spec hash")
 	currentSpecHash, err := r.computeSpecHash(tfRun)
 	if err != nil {
