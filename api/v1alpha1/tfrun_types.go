@@ -28,6 +28,11 @@ import (
 type TfRunSpec struct {
 	//+kubebuilder:validation:Required
 	ForProvider TfProviderSpec `json:"forProvider"`
+	//+kubebuilder:validation:Optional
+	// RunInterval *metav1.Duration `json:"runInterval,omitempty"`
+	RunInterval *Duration `json:"runInterval,omitempty"`
+	//+kubebuilder:validation:Optional
+	Engine TfEngine `json:"engine"`
 	//+kubebuilder:validation:Required
 	Source TfSource `json:"source"`
 	//+kubebuilder:validation:Optional
@@ -52,14 +57,23 @@ type TfRunStatus struct {
 	// ActiveJobName is the name of the currently running Job
 	ActiveJobName string `json:"activeJobName,omitempty"`
 
+	// LastSuccessfulJobName is the name of the last successful Job
+	LastSuccessfulJobName string `json:"lastSuccessfulJobName,omitempty"`
+
 	// WorkspaceID is the Scalr workspace ID created for this TfRun
 	WorkspaceID string `json:"workspaceID,omitempty"`
+
+	// WorkspaceReady indicates whether the backend workspace is ready
+	WorkspaceReady bool `json:"workspaceReady,omitempty"`
 
 	// LastSpecHash is the hash of the spec from the last successful run
 	LastSpecHash string `json:"lastSpecHash,omitempty"`
 
 	// LastRunTime is the timestamp of the last run
 	LastRunTime *metav1.Time `json:"lastRunTime,omitempty"`
+
+	// Next RunTime is the timestamp of the next scheduled run
+	NextRunTime *metav1.Time `json:"nextRunTime,omitempty"`
 
 	// Message provides additional information about the current state
 	Message string `json:"message,omitempty"`
@@ -68,16 +82,35 @@ type TfRunStatus struct {
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
 
+type Duration struct {
+	Time metav1.Duration `json:"time,omitempty"`
+	Cron string          `json:"cron,omitempty"`
+}
+
+type TfEngine struct {
+	//+kubebuilder:validation:Optional
+	//+kubebuilder:default:="opentofu"
+	//+kubebuilder:validation:Enum=terraform;opentofu
+	Type string `json:"type,omitempty"`
+	//+kubebuilder:validation:Optional
+	//+kubebuilder:default:="latest"
+	Version string `json:"version,omitempty"`
+}
+
 type TfBackend struct {
 	// Cloud backend configuration
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default:={hostname:"essity.scalr.io", organization:"my-org", workspace:"my-workspace"}
+	// +kubebuilder:default:={provider:"scalr", hostname:"essity.scalr.io", organization:"my-org", workspace:"my-workspace"}
 	Cloud *CloudBackend `json:"cloud,omitempty"`
 	// +kubebuilder:validation:Optional
 	StorageAccount *StorageAccountBackend `json:"storageAccount,omitempty"`
 }
 
 type CloudBackend struct {
+	//+kubebuilder:validation:Required
+	//+kubebuilder:validation:Enum=scalr;terraformCloud
+	//+kubebuilder:default:="scalr"
+	Provider string `json:"provider"`
 	//+kubebuilder:validation:Required
 	Hostname string `json:"hostname"`
 	//+kubebuilder:validation:Required
@@ -88,6 +121,8 @@ type CloudBackend struct {
 	EnvironmentID string `json:"environmentId,omitempty"`
 	//+kubebuilder:validation:Optional
 	AgentPoolID string `json:"agentPoolId,omitempty"`
+	//+kubebuilder:validation:Optional
+	DeleteProtection bool `json:"deleteProtection,omitempty"`
 }
 
 type StorageAccountBackend struct {
@@ -121,7 +156,13 @@ type TfSource struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-
+// +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=".status.phase"
+// +kubebuilder:printcolumn:name="Workspace",type=string,JSONPath=".status.workspaceID"
+// +kubebuilder:printcolumn:name="WorkspaceReady",type=boolean,JSONPath=".status.workspaceReady"
+// +kubebuilder:printcolumn:name="Job",type=string,JSONPath=".status.activeJobName",priority=1
+// +kubebuilder:printcolumn:name="LastRun",type=date,JSONPath=".status.lastRunTime"
+// +kubebuilder:printcolumn:name="Message",type=string,JSONPath=".status.message",priority=1
+//
 // TfRun is the Schema for the tfruns API
 type TfRun struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -132,7 +173,7 @@ type TfRun struct {
 }
 
 // +kubebuilder:object:root=true
-
+//
 // TfRunList contains a list of TfRun
 type TfRunList struct {
 	metav1.TypeMeta `json:",inline"`

@@ -14,7 +14,28 @@ spec:
     singular: tfrun
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.workspaceID
+      name: Workspace
+      type: string
+    - jsonPath: .status.workspaceReady
+      name: WorkspaceReady
+      type: boolean
+    - jsonPath: .status.activeJobName
+      name: Job
+      priority: 1
+      type: string
+    - jsonPath: .status.lastRunTime
+      name: LastRun
+      type: date
+    - jsonPath: .status.message
+      name: Message
+      priority: 1
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         description: TfRun is the Schema for the tfruns API
@@ -49,22 +70,32 @@ spec:
                     default:
                       hostname: essity.scalr.io
                       organization: my-org
+                      provider: scalr
                       workspace: my-workspace
                     description: Cloud backend configuration
                     properties:
                       agentPoolId:
                         type: string
+                      deleteProtection:
+                        type: boolean
                       environmentId:
                         type: string
                       hostname:
                         type: string
                       organization:
                         type: string
+                      provider:
+                        default: scalr
+                        enum:
+                        - scalr
+                        - terraformCloud
+                        type: string
                       workspace:
                         type: string
                     required:
                     - hostname
                     - organization
+                    - provider
                     - workspace
                     type: object
                   storageAccount:
@@ -81,12 +112,32 @@ spec:
                     - key
                     type: object
                 type: object
+              engine:
+                properties:
+                  type:
+                    default: opentofu
+                    enum:
+                    - terraform
+                    - opentofu
+                    type: string
+                  version:
+                    default: latest
+                    type: string
+                type: object
               forProvider:
                 properties:
                   credentialsSecretRef:
                     type: string
                 required:
                 - credentialsSecretRef
+                type: object
+              runInterval:
+                description: RunInterval *metav1.Duration `json:"runInterval,omitempty"`
+                properties:
+                  cron:
+                    type: string
+                  time:
+                    type: string
                 type: object
               source:
                 description: TfSource defines the source of the Terraform configuration
@@ -186,9 +237,17 @@ spec:
                 description: LastSpecHash is the hash of the spec from the last successful
                   run
                 type: string
+              lastSuccessfulJobName:
+                description: LastSuccessfulJobName is the name of the last successful
+                  Job
+                type: string
               message:
                 description: Message provides additional information about the current
                   state
+                type: string
+              nextRunTime:
+                description: Next RunTime is the timestamp of the next scheduled run
+                format: date-time
                 type: string
               observedGeneration:
                 description: ObservedGeneration reflects the generation of the most
@@ -207,6 +266,10 @@ spec:
                 description: WorkspaceID is the Scalr workspace ID created for this
                   TfRun
                 type: string
+              workspaceReady:
+                description: WorkspaceReady indicates whether the backend workspace
+                  is ready
+                type: boolean
             type: object
         type: object
     served: true

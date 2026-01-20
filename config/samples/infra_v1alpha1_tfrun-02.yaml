@@ -6,6 +6,8 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: tfrun-sample-02
 spec:
+  # runInterval:
+  #   time: 3m
   forProvider:
     credentialsSecretRef: tf-credentials
   source:
@@ -14,12 +16,13 @@ spec:
     credentialsSecretRef: git-credentials
   backend:
     cloud:
+      provider: scalr
       hostname: essity.scalr.io
       organization: cet-launchpad
       workspace: demo-workspace-11
       agentPoolId: "ap-v0p08qgiq6mohe7ns"
   arguments:
-    autoApprove: "true" 
+    autoApprove: "true"
   vars:
     name: "vimal-doing-test"
     object_example:
@@ -27,3 +30,8 @@ spec:
         age: 30
       - name: "vijayan"
         age: 25
+    another_var: "another_value"
+    another_var1: "another_value"
+    another_var2: "another_value"
+    another_var3: "another_value"
+    another_var4: "another_value"
