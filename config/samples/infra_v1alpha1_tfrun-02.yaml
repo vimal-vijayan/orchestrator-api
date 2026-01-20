@@ -6,8 +6,8 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: tfrun-sample-02
 spec:
-  # runInterval:
-  #   time: 3m
+  runInterval:
+    time: 3m
   forProvider:
     credentialsSecretRef: tf-credentials
   source:

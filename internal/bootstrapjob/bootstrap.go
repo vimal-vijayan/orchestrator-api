@@ -42,21 +42,21 @@ const (
 )
 
 type BuildJobInterface interface {
-	BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string) (*batchv1.Job, error)
+	BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string, jobName string) (*batchv1.Job, error)
 }
 
-func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string) (*batchv1.Job, error) {
+func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string, jobName string) (*batchv1.Job, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Building bootstrap job", "jobType", jobType)
 
 	// compute a short hash for unique job name
-	specHash, err := b.computeSpecHash(tfRun)
-	if err != nil {
-		logger.Error(err, "failed to compute spec hash", "tfRun", tfRun.Name)
-		return nil, fmt.Errorf("failed to compute spec hash: %w", err)
-	}
+	// specHash, err := b.computeSpecHash(tfRun)
+	// if err != nil {
+	// 	logger.Error(err, "failed to compute spec hash", "tfRun", tfRun.Name)
+	// 	return nil, fmt.Errorf("failed to compute spec hash: %w", err)
+	// }
 
-	jobName := fmt.Sprintf("%s-%s-%s", tfRun.Name, jobType, specHash)
+	// jobName := fmt.Sprintf("%s-%s-%s", tfRun.Name, jobType, specHash)
 	logger.Info("computed job name", "jobName", jobName)
 
 	// Get the engine command

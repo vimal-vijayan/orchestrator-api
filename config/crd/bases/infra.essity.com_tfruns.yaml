@@ -168,6 +168,10 @@ spec:
           status:
             description: TfRunStatus defines the observed state of TfRun
             properties:
+              activeDestroyJobName:
+                description: ActiveDestroyJobName is the name of the currently running
+                  destroy Job
+                type: string
               activeJobName:
                 description: ActiveJobName is the name of the currently running Job
                 type: string
@@ -254,6 +258,13 @@ spec:
                   recently observed TfRun
                 format: int64
                 type: integer
+              pendingExecHash:
+                description: PendingExecHash is the hash of the spec that is pending
+                  execution
+                type: string
+              pendingReason:
+                description: PendingReason indicates the reason for the pending execution
+                type: string
               phase:
                 description: Phase represents the current phase of the TerraformRun
                 enum:
@@ -261,6 +272,9 @@ spec:
                 - Running
                 - Succeeded
                 - Failed
+                type: string
+              runID:
+                description: RunID is the unique identifier for the current run
                 type: string
               workspaceID:
                 description: WorkspaceID is the Scalr workspace ID created for this

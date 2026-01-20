@@ -57,6 +57,9 @@ type TfRunStatus struct {
 	// ActiveJobName is the name of the currently running Job
 	ActiveJobName string `json:"activeJobName,omitempty"`
 
+	// ActiveDestroyJobName is the name of the currently running destroy Job
+	ActiveDestroyJobName string `json:"activeDestroyJobName,omitempty"`
+
 	// LastSuccessfulJobName is the name of the last successful Job
 	LastSuccessfulJobName string `json:"lastSuccessfulJobName,omitempty"`
 
@@ -66,8 +69,17 @@ type TfRunStatus struct {
 	// WorkspaceReady indicates whether the backend workspace is ready
 	WorkspaceReady bool `json:"workspaceReady,omitempty"`
 
+	// RunID is the unique identifier for the current run
+	RunID string `json:"runID,omitempty"`
+
 	// LastSpecHash is the hash of the spec from the last successful run
 	LastSpecHash string `json:"lastSpecHash,omitempty"`
+
+	// PendingExecHash is the hash of the spec that is pending execution
+	PendingExecHash string `json:"pendingExecHash,omitempty"`
+
+	// PendingReason indicates the reason for the pending execution
+	PendingReason string `json:"pendingReason,omitempty"`
 
 	// LastRunTime is the timestamp of the last run
 	LastRunTime *metav1.Time `json:"lastRunTime,omitempty"`

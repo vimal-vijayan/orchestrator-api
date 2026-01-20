@@ -48,9 +48,8 @@ const (
 	PhaseFailed    = "Failed"
 
 	// Condition types
-	ConditionTypeReady     = "Ready"
-	ConditionTypeApplied   = "Applied"
-	ConditionTypeDestroyed = "Destroyed"
+	ConditionTypeReady   = "Ready"
+	ConditionTypeApplied = "Applied"
 
 	// Job labels
 	jobTypeApply   = "apply"
@@ -101,8 +100,6 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
-	logger.Info("TfRun fetched", "generation", tfRun.Generation, "phase", tfRun.Status.Phase, "deletionTimestamp", tfRun.DeletionTimestamp)
-
 	// Ensure finalizer is added, requeue if not present
 	if err := r.ensureFinalizer(ctx, tfRun); err != nil {
 		logger.Error(err, "failed to ensure finalizer")
@@ -123,7 +120,6 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		logger.Error(err, "failed to compute spec hash")
 		return ctrl.Result{}, err
 	}
-
 	logger.Info("computed spec hash", "hash", currentSpecHash, "previousHash", tfRun.Status.LastSpecHash)
 
 	// Reconcile backend workspace if not already done
@@ -133,39 +129,103 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			return result, err
 		}
 	}
-
 	logger.Info("backend workspace already exists", "workspaceID", tfRun.Status.WorkspaceID)
 
 	// Check if there's an active Job
 	logger.Info("active job name check", "activeJobName", tfRun.Status.ActiveJobName)
-	if tfRun.Status.ActiveJobName != "" {
-		return r.updateJobStatus(ctx, tfRun)
-	}
+	activeJob, activeJobRunning := r.getActiveJobIfAny(ctx, tfRun)
 
 	// Check if spec has changed
-	specChanged := tfRun.Status.LastSpecHash != currentSpecHash ||
-		tfRun.Status.ObservedGeneration != tfRun.Generation
+	specChanged := (tfRun.Status.LastSpecHash != currentSpecHash)
 
 	// If spec changed, create new job immediately
 	if specChanged {
-		logger.Info("Spec changed, creating new job immediately",
-			"hashChanged", tfRun.Status.LastSpecHash != currentSpecHash,
-			"generationChanged", tfRun.Status.ObservedGeneration != tfRun.Generation)
+		if activeJobRunning {
+			logger.Info("Spec changed but an active job is still running, will not create a new job", "activeJobName", activeJob.Name)
+			tfRun.Status.PendingExecHash = currentSpecHash
+			tfRun.Status.PendingReason = "SpecChange"
+			_ = r.Status().Update(ctx, tfRun)
+			// if an active apply job is running, wait for 1min and requeue, Since terrafrom/tofu lock the workspace while a plan/apply/destroy is running
+			return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+		}
+
+		// No active job - create new job
+		logger.Info("Spec changed, creating new job immediately", "hashChanged", tfRun.Status.LastSpecHash != currentSpecHash, "generationChanged", tfRun.Status.ObservedGeneration != tfRun.Generation)
 		return r.createNewJob(ctx, tfRun, currentSpecHash, jobTypeApply)
 	}
 
-	// Spec hasn't changed - check if we need to handle interval-based runs
-	if tfRun.Spec.RunInterval != nil {
-		return r.handleIntervalBasedRun(ctx, tfRun, currentSpecHash)
+	// No spec change, if job runs wait for it to complete
+	if activeJobRunning {
+		logger.Info("An active job is still running, waiting for it to complete", "activeJobName", activeJob.Name)
+		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 	}
 
-	// No interval configured and spec unchanged - nothing to do
-	logger.Info("Spec unchanged and no run interval configured, skipping reconciliation",
-		"phase", tfRun.Status.Phase,
-		"generation", tfRun.Generation,
-		"observedGeneration", tfRun.Status.ObservedGeneration)
+	// Spec hasn't changed - check if we need to handle interval-based runs
+	pendingExists := (tfRun.Status.PendingExecHash != "" && tfRun.Status.PendingExecHash != tfRun.Status.LastSpecHash)
 
-	return ctrl.Result{}, nil
+	if pendingExists {
+		execHash := tfRun.Status.PendingExecHash
+		logger.Info("Pending execution detected due to spec change during active job, creating new job", "execHash", execHash)
+		return r.createNewJob(ctx, tfRun, execHash, jobTypeApply)
+	}
+
+	if tfRun.Spec.RunInterval == nil {
+		logger.Info("handling interval based run")
+		if tfRun.Status.NextRunTime != nil {
+			tfRun.Status.NextRunTime = nil
+			_ = r.Status().Update(ctx, tfRun)
+		}
+		return ctrl.Result{}, nil
+	}
+
+	due := false
+	if tfRun.Status.NextRunTime == nil || !time.Now().Before(tfRun.Status.NextRunTime.Time) {
+		due = true
+	}
+
+	if !due {
+		logger.Info("No action needed, TfRun is up-to-date and no interval run is due")
+		return ctrl.Result{RequeueAfter: time.Until(tfRun.Status.NextRunTime.Time)}, nil
+	}
+
+	logger.Info("Interval run is due, creating new job")
+	return r.createNewJob(ctx, tfRun, currentSpecHash, jobTypeApply)
+}
+
+func BuildRunID(generation int64, specHash string) string {
+	return fmt.Sprintf("gen-%d-%s", generation, specHash[0:8])
+}
+
+func (r *TfRunReconciler) getActiveJobIfAny(ctx context.Context, tfRun *infrav1alpha1.TfRun) (*batchv1.Job, bool) {
+	logger := log.FromContext(ctx)
+
+	if tfRun.Status.ActiveJobName == "" {
+		logger.Info("No active job name in status")
+		return nil, false
+	}
+
+	job := &batchv1.Job{}
+	jobKey := types.NamespacedName{
+		Namespace: tfRun.Namespace,
+		Name:      tfRun.Status.ActiveJobName,
+	}
+
+	if err := r.Get(ctx, jobKey, job); err != nil {
+		if apierrors.IsNotFound(err) {
+			logger.Info("No active job found with name", "jobName", tfRun.Status.ActiveJobName)
+			return nil, false
+		}
+		logger.Error(err, "Failed to get active job", "jobName", tfRun.Status.ActiveJobName)
+		return nil, false
+	}
+
+	if r.isJobActive(job) {
+		logger.Info("Active job is still running", "jobName", job.Name)
+		return job, true
+	}
+
+	logger.Info("Active job is not running", "jobName", job.Name)
+	return job, false
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -198,23 +258,89 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 	logger := log.FromContext(ctx)
 	logger.Info("Handling TfRun deletion")
 
-	if tfRun.Status.ActiveJobName != "" {
-		logger.Info("An active destroy job is already present", "jobName", tfRun.Status.ActiveJobName)
+	if tfRun.Status.ActiveDestroyJobName != "" {
+		logger.Info("An active destroy job is already present", "jobName", tfRun.Status.ActiveDestroyJobName)
 		return r.handleDestroyJob(ctx, tfRun)
 	}
 
-	currentSpecHash, err := r.computeSpecHash(tfRun)
+	logger.Info("creating destroy Job")
+	logger.Info("creating new job for TfRun", "Name", tfRun.Name)
+	destroyJob, err := bootstrapjob.ForEngine(r.Client, strings.ToLower(tfRun.Spec.Engine.Type), []string{})
 	if err != nil {
-		logger.Error(err, "failed to compute spec hash for destroy job creation")
+		logger.Error(err, "Failed to get engine job builder for destroy")
 		return ctrl.Result{}, err
 	}
 
-	// No active destroy Job - create one
-	logger.Info("creating destroy Job")
-	return r.createNewJob(ctx, tfRun, currentSpecHash, jobTypeDestroy)
+	jobName := strings.ToLower(fmt.Sprintf("%s-destroy", tfRun.Name))
+
+	existing := &batchv1.Job{}
+	if err := r.Get(ctx, types.NamespacedName{Namespace: tfRun.Namespace, Name: jobName}, existing); err == nil {
+		logger.Info("Found existing destroy job; adopting", "jobName", jobName)
+
+		// Refresh the TfRun object to avoid conflicts
+		if err := r.Get(ctx, client.ObjectKeyFromObject(tfRun), tfRun); err != nil {
+			logger.Error(err, "Failed to refresh TfRun object before status update")
+			return ctrl.Result{}, err
+		}
+
+		tfRun.Status.ActiveDestroyJobName = jobName
+		tfRun.Status.Phase = "Failed"
+		tfRun.Status.Message = fmt.Sprintf("Destroy job %s already exists; waiting", jobName)
+		err = r.Status().Update(ctx, tfRun)
+		if err != nil {
+			logger.Error(err, "Failed to update TfRun status after adopting existing destroy job")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+	}
+
+	job, err := destroyJob.BuildJob(ctx, tfRun, jobTypeDestroy, jobName)
+
+	if err != nil {
+		logger.Error(err, "Failed to build destroy job template for tfrun")
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("failed to build destroy job: %v", err)
+		_ = r.Status().Update(ctx, tfRun)
+		return ctrl.Result{}, err
+	}
+
+	// Set TfRun as owner of the Job
+	if err := controllerutil.SetControllerReference(tfRun, job, r.Scheme); err != nil {
+		logger.Error(err, "failed to set controller reference for destroy job")
+		return ctrl.Result{}, err
+	}
+
+	// Create the Job
+	if err := r.Create(ctx, job); err != nil {
+		if apierrors.IsAlreadyExists(err) {
+			logger.Info("destroy job already exists", "jobName", job.Name)
+			tfRun.Status.ActiveDestroyJobName = jobName
+			tfRun.Status.Phase = "Failed"
+			tfRun.Status.ObservedGeneration = tfRun.Generation
+			// wait for destroy job to complete
+			_ = r.Status().Update(ctx, tfRun)
+			return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
+		}
+		logger.Error(err, "failed to create destroy Job")
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("Failed to create destroy Job: %v", err)
+		return ctrl.Result{}, err
+	}
+
+	logger.Info("destroy job created successfully", "jobName", jobName)
+	tfRun.Status.ActiveDestroyJobName = jobName
+	tfRun.Status.Phase = "Failed"
+	tfRun.Status.ObservedGeneration = tfRun.Generation
+	tfRun.Status.Message = fmt.Sprintf("Created destroy Job %s", jobName)
+	err = r.Status().Update(ctx, tfRun)
+	if err != nil {
+		logger.Error(err, "Failed to update TfRun status after creating destroy job")
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, nil
 }
 
-// removeFinalizer removes the finalizer with retry logic
 func (r *TfRunReconciler) removeFinalizer(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -250,79 +376,47 @@ func (r *TfRunReconciler) removeFinalizer(ctx context.Context, tfRun *infrav1alp
 	return ctrl.Result{}, nil
 }
 
-// handleIntervalBasedRun handles periodic runs based on runInterval
-func (r *TfRunReconciler) handleIntervalBasedRun(ctx context.Context, tfRun *infrav1alpha1.TfRun, currentSpecHash string) (ctrl.Result, error) {
-	logger := log.FromContext(ctx)
-
-	// If this is the first run (no LastRunTime), set NextRunTime and return
-	if tfRun.Status.LastRunTime == nil {
-		logger.Info("First run - no LastRunTime set yet")
-		return ctrl.Result{}, nil
-	}
-
-	// Calculate next run time
-	nextRunTime := tfRun.Status.LastRunTime.Add(tfRun.Spec.RunInterval.Time.Duration)
-
-	// Update NextRunTime in status if not set or different
-	if tfRun.Status.NextRunTime == nil || !tfRun.Status.NextRunTime.Time.Equal(nextRunTime) {
-		logger.Info("Updating NextRunTime in status", "nextRunTime", nextRunTime)
-		tfRun.Status.NextRunTime = &metav1.Time{Time: nextRunTime}
-		if err := r.Status().Update(ctx, tfRun); err != nil {
-			logger.Error(err, "Failed to update NextRunTime in status")
-			return ctrl.Result{}, err
-		}
-	}
-
-	// Check if it's time to run
-	now := time.Now()
-	if now.Before(nextRunTime) {
-		timeUntilNext := time.Until(nextRunTime)
-		logger.Info("Run interval not yet elapsed, requeuing",
-			"nextRunTime", nextRunTime,
-			"timeUntilNext", timeUntilNext)
-		return ctrl.Result{RequeueAfter: timeUntilNext}, nil
-	}
-
-	// Time to create a new job
-	logger.Info("Run interval elapsed, creating new job",
-		"lastRunTime", tfRun.Status.LastRunTime,
-		"nextRunTime", nextRunTime,
-		"currentTime", now)
-
-	return r.createNewJob(ctx, tfRun, currentSpecHash, jobTypeApply)
-}
-
 // createNewJob creates a new apply job for the TfRun
 func (r *TfRunReconciler) createNewJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, currentSpecHash string, jobType string) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Creating new job")
-
+	logger.Info("creating new job for TfRun", "Name", tfRun.Name)
 	applyJob, err := bootstrapjob.ForEngine(r.Client, strings.ToLower(tfRun.Spec.Engine.Type), []string{})
 	if err != nil {
-		logger.Error(err, "Failed to get engine Job builder for apply")
+		logger.Error(err, "Failed to get engine job builder for apply")
 		return ctrl.Result{}, err
 	}
 
-	job, err := applyJob.BuildJob(ctx, tfRun, jobType)
+	runId := BuildRunID(tfRun.Generation, currentSpecHash)
+	jobName := strings.ToLower(fmt.Sprintf("%s-%s", tfRun.Name, runId))
+	maxLen := 63
+	if len(jobName) > maxLen {
+		jobName = strings.TrimRight(jobName[:maxLen], "-")
+	} else {
+		jobName = strings.TrimRight(jobName, "-")
+	}
+
+	job, err := applyJob.BuildJob(ctx, tfRun, jobType, jobName)
+
 	if err != nil {
 		logger.Error(err, "Failed to build job template for tfrun")
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("failed to build job: %v", err)
-		return  r.updateStatus(ctx, tfRun)
+		_ = r.Status().Update(ctx, tfRun)
+		return ctrl.Result{}, err
 	}
 
 	// Set TfRun as owner of the Job
 	if err := controllerutil.SetControllerReference(tfRun, job, r.Scheme); err != nil {
-		logger.Error(err, "Failed to set controller reference")
+		logger.Error(err, "failed to set controller reference")
 		return ctrl.Result{}, err
 	}
 
 	// Create the Job
-	return r.createJobAndUpdateStatus(ctx, tfRun, job, currentSpecHash)
+	return r.createJobAndUpdateStatus(ctx, tfRun, job, currentSpecHash, jobName, jobType)
 }
 
 // create job and update status
-func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *infrav1alpha1.TfRun, job *batchv1.Job, currentSpecHash string) (ctrl.Result, error) {
+func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *infrav1alpha1.TfRun, job *batchv1.Job, currentSpecHash string, jobName string, jobType string) (ctrl.Result, error) {
 
 	logger := log.FromContext(ctx)
 
@@ -330,7 +424,7 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 	if err := r.Create(ctx, job); err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			logger.Info("job already exists", "jobName", job.Name)
-			tfRun.Status.ActiveJobName = job.Name
+			tfRun.Status.ActiveJobName = jobName
 			tfRun.Status.Phase = PhaseRunning
 			tfRun.Status.ObservedGeneration = tfRun.Generation
 			return r.updateStatus(ctx, tfRun)
@@ -338,16 +432,21 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 		logger.Error(err, "failed to create Job")
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("Failed to create Job: %v", err)
-		return r.updateStatus(ctx, tfRun)
-		
+		// return r.updateStatus(ctx, tfRun)
+		_ = r.Status().Update(ctx, tfRun)
+		return ctrl.Result{}, err
 	}
 
-	logger.Info("created tfrun job", "jobName", job.Name)
-	tfRun.Status.ActiveJobName = job.Name
+	logger.Info("job created successfully", "jobName", jobName)
+	tfRun.Status.ActiveJobName = jobName
+	//TODO: need better logic for runID
+	tfRun.Status.RunID = BuildRunID(tfRun.Generation, currentSpecHash)
 	tfRun.Status.LastSpecHash = currentSpecHash
 	tfRun.Status.Phase = PhaseRunning
 	tfRun.Status.ObservedGeneration = tfRun.Generation
-	tfRun.Status.Message = fmt.Sprintf("Created Job %s", job.Name)
+	tfRun.Status.Message = fmt.Sprintf("Created Job %s", jobName)
+	tfRun.Status.PendingExecHash = ""
+	tfRun.Status.PendingReason = ""
 	meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
 		Type:               ConditionTypeApplied,
 		Status:             metav1.ConditionFalse,
@@ -356,9 +455,23 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 		ObservedGeneration: tfRun.Generation,
 	})
 
+	if tfRun.Spec.RunInterval != nil {
+		lastRuntime := time.Now()
+		tfRun.Status.LastRunTime = &metav1.Time{Time: lastRuntime}
+		nextRunTime := time.Now().Add(tfRun.Spec.RunInterval.Time.Duration)
+		tfRun.Status.NextRunTime = &metav1.Time{Time: nextRunTime}
+		logger.Info("setting next run time for interval based run", "nextRunTime", nextRunTime)
+	} else {
+		tfRun.Status.NextRunTime = nil
+	}
+
 	if err := r.Status().Update(ctx, tfRun); err != nil {
 		logger.Error(err, "failed to update TfRun status after job creation")
 		return ctrl.Result{}, err
+	}
+
+	if tfRun.Spec.RunInterval != nil {
+		return ctrl.Result{RequeueAfter: time.Until(tfRun.Status.NextRunTime.Time)}, nil
 	}
 
 	return ctrl.Result{}, nil
@@ -391,12 +504,14 @@ func (r *TfRunReconciler) handleDestroyJob(ctx context.Context, tfRun *infrav1al
 	job := &batchv1.Job{}
 	jobKey := types.NamespacedName{
 		Namespace: tfRun.Namespace,
-		Name:      tfRun.Status.ActiveJobName,
+		Name:      tfRun.Status.ActiveDestroyJobName,
 	}
 
 	if err := r.Get(ctx, jobKey, job); err != nil {
 		if apierrors.IsNotFound(err) {
-			logger.Info(jobNotFoundMessage, "jobName", tfRun.Status.ActiveJobName)
+			logger.Info(jobNotFoundMessage, "jobName", tfRun.Status.ActiveDestroyJobName)
+			tfRun.Status.ActiveDestroyJobName = ""
+			_ = r.Status().Update(ctx, tfRun)
 			return r.cleanupWorkspaceAndRemoveFinalizer(ctx, tfRun)
 		}
 
@@ -406,20 +521,35 @@ func (r *TfRunReconciler) handleDestroyJob(ctx context.Context, tfRun *infrav1al
 	switch {
 	case r.isJobActive(job):
 		tfRun.Status.Phase = "Destroying"
-		return ctrl.Result{}, nil
+		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 
 	case r.isJobSucceeded(job):
 		logger.Info("destroy job has succeeded", "jobName", job.Name)
+		tfRun.Status.Message = fmt.Sprintf("Destroy job %s succeeded", job.Name)
+		tfRun.Status.ActiveDestroyJobName = ""
+		_ = r.Status().Update(ctx, tfRun)
 		return r.cleanupWorkspaceAndRemoveFinalizer(ctx, tfRun)
 
 	case r.isJobFailed(job):
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("destroy job %s has failed", job.Name)
+
+		// if v, ok := tfRun.Annotations["infra.essity.com/force-finalize"]; ok && strings.ToLower(v) == "true" {
+		// 	logger.Info("Force finalize enabled; removing finalizer despite failed destroy")
+		// 	return r.removeFinalizer(ctx, tfRun)
+		// }
+
+		// if tfRun.DeletionTimestamp != nil && time.Since(tfRun.DeletionTimestamp.Time) > 30*time.Minute {
+		// 	logger.Error(fmt.Errorf("destroy failed"), "Timed out waiting for destroy; removing finalizer", "jobName", job.Name)
+		// 	return r.removeFinalizer(ctx, tfRun)
+		// }
+		tfRun.Status.ActiveDestroyJobName = ""
+		_ = r.Status().Update(ctx, tfRun)
 		return ctrl.Result{}, nil
 
 	default:
-		logger.Info("destroy job is still running", "jobName", job.Name)
-		return ctrl.Result{}, nil
+		logger.Info("unknown job state", "jobName", job.Name)
+		return ctrl.Result{RequeueAfter: 600 * time.Second}, nil
 	}
 }
 
