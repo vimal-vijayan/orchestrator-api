@@ -72,7 +72,7 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 	}
 
 	logger.Info(CloudWorkspaceCreated, "workspaceID", workspaceId)
-	
+
 	// Update TfRun status with workspace details
 	tfRun.Status.WorkspaceID = workspaceId
 	tfRun.Status.WorkspaceReady = true
