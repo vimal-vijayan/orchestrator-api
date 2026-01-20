@@ -13,7 +13,7 @@ spec:
   # Engine configuration (optional - defaults to opentofu:latest)
   engine:
     type: opentofu
-    version: "1.6.0"
+    version: "1.10.5"
 
   # Source configuration
   source:

@@ -30,33 +30,30 @@ const (
 	workdDir = "/workdDir"
 
 	labelJobType   = "job-type"
-	jobTypeApply   = "apply"
 	jobTypeDestroy = "destroy"
 
 	jobBackoffLimit = 3
-	// ttlSuccessDefault = int32(3600)  // 1 hour
-	// ttlFailureDefault = int32(86400) // 1 day
 	// job TTL defaults (in seconds)
-	ttlSuccessDefault = int32(120) // 2 minutes
-	ttlFailureDefault = int32(120) // 2 minutes
+	ttlSuccessDefault = int32(300) // 5 minutes
+	ttlFailureDefault = int32(300) // 5 minutes
 )
 
 type BuildJobInterface interface {
-	BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string) (*batchv1.Job, error)
+	BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string, jobName string) (*batchv1.Job, error)
 }
 
-func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string) (*batchv1.Job, error) {
+func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string, jobName string) (*batchv1.Job, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Building bootstrap job", "jobType", jobType)
 
 	// compute a short hash for unique job name
-	specHash, err := b.computeSpecHash(tfRun)
-	if err != nil {
-		logger.Error(err, "failed to compute spec hash", "tfRun", tfRun.Name)
-		return nil, fmt.Errorf("failed to compute spec hash: %w", err)
-	}
+	// specHash, err := b.computeSpecHash(tfRun)
+	// if err != nil {
+	// 	logger.Error(err, "failed to compute spec hash", "tfRun", tfRun.Name)
+	// 	return nil, fmt.Errorf("failed to compute spec hash: %w", err)
+	// }
 
-	jobName := fmt.Sprintf("%s-%s-%s", tfRun.Name, jobType, specHash)
+	// jobName := fmt.Sprintf("%s-%s-%s", tfRun.Name, jobType, specHash)
 	logger.Info("computed job name", "jobName", jobName)
 
 	// Get the engine command
@@ -138,6 +135,7 @@ func getEngineImage(engineType string) string {
 func (b *BootstrapJob) buildJobTemplate(tfRun *infrav1alpha1.TfRun, jobName string, jobType string, tfCommand string, envVars []corev1.EnvVar, gitCloneCmd string) *batchv1.Job {
 
 	backoffLimit := int32(jobBackoffLimit)
+	imageVersion := getTfImageVersion(b.EngineType, tfRun)
 
 	ttlSeconds := getTTL("JOB_TTL_SUCCESS", ttlSuccessDefault)
 	if jobType == jobTypeDestroy {
@@ -184,11 +182,12 @@ func (b *BootstrapJob) buildJobTemplate(tfRun *infrav1alpha1.TfRun, jobName stri
 					},
 					Containers: []corev1.Container{
 						{
-							Name:    "opentofu",
-							Image:   "ghcr.io/opentofu/opentofu:latest",
+							Name: "opentofu",
+							// Image:   "ghcr.io/opentofu/opentofu:latest",
+							Image:   imageVersion,
 							Command: []string{"/bin/sh", "-c"},
-							// Args:    []string{tfCommand},
-							Args:       []string{"echo 'Running command: tofu plan'"},
+							Args:    []string{tfCommand},
+							// Args:       []string{"echo 'Running command: tofu plan'"},
 							WorkingDir: workingDir,
 							Env:        envVars,
 							VolumeMounts: []corev1.VolumeMount{
@@ -213,6 +212,29 @@ func (b *BootstrapJob) buildJobTemplate(tfRun *infrav1alpha1.TfRun, jobName stri
 	}
 
 	return job
+}
+
+func getTfImageVersion(engineType string, tfRun *infrav1alpha1.TfRun) string {
+	var version string
+	if tfRun.Spec.Engine.Version != "" {
+		version = tfRun.Spec.Engine.Version
+	} else {
+		version = "latest"
+	}
+
+	switch engineType {
+	case tofuEngine:
+		// return fmt.Sprintf("ghcr.io/opentofu/opentofu:%s", version)
+		// TODO: opentofu might not have the specific version tags, accroding to their docs
+		// https://opentofu.org/docs/intro/install/docker/
+		// we may have to create a custom docker image with the specific version, and push to our registry
+		// For now, return latest, if you use remote workspaces, the version can be set there
+		return "ghcr.io/opentofu/opentofu:latest"
+	case tfEngine:
+		return fmt.Sprintf("hashicorp/terraform:%s", version)
+	default:
+		return "ghcr.io/opentofu/opentofu:latest"
+	}
 }
 
 func getTTL(env string, defaultTTL int32) int32 {
@@ -273,6 +295,7 @@ func (b *BootstrapJob) cloudBackend(tfRun infrav1alpha1.TfRun) ([]corev1.EnvVar,
 	return envVars, nil
 }
 
+// THIS IS A PLACEHOLDER FOR FUTURE BACKEND TYPES
 // func (b *BootstrapJob) s3Backend(backend infrav1alpha1.TfBackend) []corev1.EnvVar {
 // 	return []corev1.EnvVar{}
 // }

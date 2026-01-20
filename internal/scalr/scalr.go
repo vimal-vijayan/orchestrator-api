@@ -89,6 +89,54 @@ type ScalrEnvironmentListResponse struct {
 	} `json:"data"`
 }
 
+func (s *Service) GetWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun, workspaceId string, environmentId string) (string, error) {
+	logger := log.FromContext(ctx)
+	backend := tfRun.Spec.Backend.Cloud
+	// apiUrl := fmt.Sprintf("https://%s/api/iacp/v3/workspaces/%s",&backend.Hostname, workspaceId)
+	apiUrl := fmt.Sprintf("https://%s/api/iacp/v3/workspaces?filter[environment]=%s&filter[workspace]=%s", backend.Hostname, environmentId, workspaceId)
+	req, err := http.NewRequestWithContext(ctx, "GET", apiUrl, nil)
+	if err != nil {
+		return "", fmt.Errorf(errFormatWithCause, "failed to create HTTP request for Scalr workspace", err)
+	}
+
+	req.Header.Set("Accept", requestHeaderAccept)
+	token, err := s.GetScalrToken(ctx, tfRun)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := s.HTTP.Do(req)
+	if err != nil {
+		return "", fmt.Errorf(errFormatWithCause, "failed to perform HTTP request for Scalr workspace", err)
+	}
+
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf(errFormatWithCause, "failed to read HTTP response body for Scalr workspace", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET: scalr workspace retrieval failed with status code %d: %s", resp.StatusCode, string(body))
+	}
+
+	var workspaceResponse ScalrEnvironmentListResponse
+	if err := json.Unmarshal(body, &workspaceResponse); err != nil {
+		return "", fmt.Errorf(errFormatWithCause, "failed to unmarshal Scalr workspace response", err)
+	}
+
+	if len(workspaceResponse.Data) == 0 {
+		logger.Error(fmt.Errorf(errEnvironmentNotFound), "scalr environment not found", "environment", backend.Organization)
+		return "", fmt.Errorf(errEnvironmentNotFound)
+	}
+
+	workspaceID := workspaceResponse.Data[0].ID
+	logger.V(1).Info("successfully retrieved scalr workspace id", "workspaceID", workspaceID)
+
+	return workspaceID, nil
+}
+
 // Get scalr evnvironment ID
 func (s *Service) GetScalrEnvironmentID(ctx context.Context, tfRun *infrav1alpha1.TfRun) (string, error) {
 	logger := log.FromContext(ctx)
@@ -163,6 +211,16 @@ func (s *Service) CreateScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 	agentPoolId := backend.AgentPoolID
 	scalrAutoApply := tfRun.Spec.Arguments
 	autoApprove, exists := scalrAutoApply["autoApprove"]
+	iacPlatform := tfRun.Spec.Engine.Type
+
+	if iacPlatform == "" {
+		iacPlatform = IacPlatform
+	}
+
+	IacVersion := tfRun.Spec.Engine.Version
+	if IacVersion == "" {
+		IacVersion = "latest"
+	}
 
 	if !exists {
 		autoApprove = "true"
@@ -179,7 +237,8 @@ func (s *Service) CreateScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 			Attributes: ScalrWorkspaceAttributes{
 				Name:        workspaceName,
 				AutoApply:   autoApprove == "true",
-				IacPlatform: IacPlatform,
+				IacPlatform: iacPlatform,
+				IacVersion:  IacVersion,
 			},
 			Relationships: ScalrWorkspaceRelationships{
 				Environment: ScalrEnvironmentRelation{
@@ -212,6 +271,8 @@ func (s *Service) CreateScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 	logger.V(1).Info("Creating Scalr workspace",
 		"scalr workspace", workspaceName,
 		"scalr environment id", environmentID,
+		"iac platform", iacPlatform,
+		"version", IacVersion,
 	)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiUrl, bytes.NewReader(payloadBytes))

@@ -12,10 +12,12 @@ import (
 )
 
 const (
-	CloudBackendFailed    = "failed to get cloud backend implementation"
-	CloudWorkspaceFailed  = "failed to reconcile cloud workspace"
-	CloudWorkspacePending = "cloud workspace creation pending"
-	CloudWorkspaceCreated = "cloud workspace created successfully"
+	CloudBackendFailed        = "failed to get cloud backend implementation"
+	CloudWorkspaceFailed      = "failed to reconcile cloud workspace"
+	CloudWorkspacePending     = "cloud workspace creation pending"
+	CloudWorkspaceCreated     = "cloud workspace created successfully"
+	CloudWorkspaceImported    = "cloud workspace imported successfully"
+	WorkspaceImportAnnotation = "tfruns.infra.essity.com/scalr-workspace-id"
 )
 
 func (r *TfRunReconciler) getCloudBackend(ctx context.Context, tfRun *infrav1alpha1.TfRun) (backend.CloudBackend, error) {
@@ -47,8 +49,12 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudBackendFailed, err)
 		tfRun.Status.WorkspaceReady = false
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
+		return r.updateStatus(ctx, tfRun)
+	}
+
+	// import workspace if annotation is present
+	if tfRun.Annotations != nil && tfRun.Annotations[WorkspaceImportAnnotation] != "" {
+		return r.importScalrWorkspace(ctx, tfRun)
 	}
 
 	// Ensure the workspace exists
@@ -59,19 +65,17 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudWorkspaceFailed, err)
 		tfRun.Status.WorkspaceReady = false
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
+		return r.updateStatus(ctx, tfRun)
 	}
 
-	// If workspaceId is empty, the workspace is still being created
+	// If workspaceId is empty, the workspace is still being created, considering it is pending/failed
 	if workspaceId == "" {
 		logger.Info(CloudWorkspacePending)
 		tfRun.Status.Phase = PhasePending
 		tfRun.Status.Message = CloudWorkspacePending
 		tfRun.Status.WorkspaceReady = false
 		tfRun.Status.ObservedGeneration = tfRun.Generation
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
+		return r.updateStatus(ctx, tfRun)
 	}
 
 	logger.Info(CloudWorkspaceCreated, "workspaceID", workspaceId)
@@ -85,10 +89,36 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 	logger.V(1).Info("tfrun updated for workspace", "workspaceID", workspaceId)
 
 	// Update status after successful workspace creation
-	if err := r.Status().Update(ctx, tfRun); err != nil {
-		logger.Error(err, "Failed to update TfRun status after workspace creation")
-		return ctrl.Result{}, err
+	return r.updateStatus(ctx, tfRun)
+}
+
+func (r *TfRunReconciler) importScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+	// GET the cloud backend implementation
+	be, err := r.getCloudBackend(ctx, tfRun)
+	workspaceId := tfRun.Annotations[WorkspaceImportAnnotation]
+	logger.Info("found workspace import annotation", "workspaceID", workspaceId)
+	logger.Info("importing existing workspace based on annotation", "workspaceID", workspaceId)
+
+	// check if the workspace actually exists in the backend
+	existingWorkspaceId, err := be.GetWorkspace(ctx, tfRun, workspaceId)
+	if err != nil {
+		logger.Error(err, "failed to get existing workspace from backend", "workspaceID", workspaceId)
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("failed to get existing workspace from backend: %v", err)
+		tfRun.Status.WorkspaceReady = false
+		return r.updateStatus(ctx, tfRun)
 	}
 
-	return ctrl.Result{}, nil
+	logger.Info("successfully retrieved existing workspace from backend", "workspaceID", existingWorkspaceId)
+	// update the status with the existing workspace ID
+	tfRun.Status.WorkspaceID = existingWorkspaceId
+	tfRun.Status.WorkspaceReady = true
+	tfRun.Status.WorkspaceImport = true
+	tfRun.Status.Phase = PhasePending
+	tfRun.Status.Message = CloudWorkspaceImported
+	tfRun.Status.ObservedGeneration = tfRun.Generation
+	logger.V(1).Info("tfrun updated for imported workspace", "workspaceID", existingWorkspaceId)
+
+	return r.updateStatus(ctx, tfRun)
 }

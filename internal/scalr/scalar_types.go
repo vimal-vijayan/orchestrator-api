@@ -14,11 +14,12 @@ type ScalrWorkspaceData struct {
 type ScalrWorkspaceAttributes struct {
 	Name        string `json:"name"`
 	AutoApply   bool   `json:"auto_apply"`
-	IacPlatform string `json:"iac_platform"`
+	IacPlatform string `json:"iac-platform"`
+	IacVersion  string `json:"terraform-version"`
 }
 
 type ScalrWorkspaceRelationships struct {
-	AgentPool   ScalrAgentPoolRelation   `json:"agent_pool,omitempty"`
+	AgentPool   ScalrAgentPoolRelation   `json:"agent-pool,omitempty"`
 	Environment ScalrEnvironmentRelation `json:"environment"`
 }
 
