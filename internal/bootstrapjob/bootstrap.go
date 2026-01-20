@@ -30,15 +30,12 @@ const (
 	workdDir = "/workdDir"
 
 	labelJobType   = "job-type"
-	jobTypeApply   = "apply"
 	jobTypeDestroy = "destroy"
 
 	jobBackoffLimit = 3
-	// ttlSuccessDefault = int32(3600)  // 1 hour
-	// ttlFailureDefault = int32(86400) // 1 day
 	// job TTL defaults (in seconds)
-	ttlSuccessDefault = int32(120) // 2 minutes
-	ttlFailureDefault = int32(120) // 2 minutes
+	ttlSuccessDefault = int32(300) // 5 minutes
+	ttlFailureDefault = int32(300) // 5 minutes
 )
 
 type BuildJobInterface interface {
@@ -273,6 +270,7 @@ func (b *BootstrapJob) cloudBackend(tfRun infrav1alpha1.TfRun) ([]corev1.EnvVar,
 	return envVars, nil
 }
 
+// THIS IS A PLACEHOLDER FOR FUTURE BACKEND TYPES
 // func (b *BootstrapJob) s3Backend(backend infrav1alpha1.TfBackend) []corev1.EnvVar {
 // 	return []corev1.EnvVar{}
 // }
