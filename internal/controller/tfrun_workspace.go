@@ -47,8 +47,7 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudBackendFailed, err)
 		tfRun.Status.WorkspaceReady = false
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
+		return r.updateStatus(ctx, tfRun)
 	}
 
 	// Ensure the workspace exists
@@ -59,23 +58,21 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudWorkspaceFailed, err)
 		tfRun.Status.WorkspaceReady = false
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
+		return r.updateStatus(ctx, tfRun)
 	}
 
-	// If workspaceId is empty, the workspace is still being created
+	// If workspaceId is empty, the workspace is still being created, considering it is pending/failed
 	if workspaceId == "" {
 		logger.Info(CloudWorkspacePending)
 		tfRun.Status.Phase = PhasePending
 		tfRun.Status.Message = CloudWorkspacePending
 		tfRun.Status.WorkspaceReady = false
 		tfRun.Status.ObservedGeneration = tfRun.Generation
-		_, _ = r.updateStatus(ctx, tfRun)
-		return ctrl.Result{}, err
+		return r.updateStatus(ctx, tfRun)
 	}
 
 	logger.Info(CloudWorkspaceCreated, "workspaceID", workspaceId)
-
+	
 	// Update TfRun status with workspace details
 	tfRun.Status.WorkspaceID = workspaceId
 	tfRun.Status.WorkspaceReady = true
@@ -85,10 +82,5 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 	logger.V(1).Info("tfrun updated for workspace", "workspaceID", workspaceId)
 
 	// Update status after successful workspace creation
-	if err := r.Status().Update(ctx, tfRun); err != nil {
-		logger.Error(err, "Failed to update TfRun status after workspace creation")
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
+	return r.updateStatus(ctx, tfRun)
 }

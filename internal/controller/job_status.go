@@ -133,16 +133,11 @@ func (r *TfRunReconciler) isJobFailed(job *batchv1.Job) bool {
 // updateStatus updates the TfRun status
 func (r *TfRunReconciler) updateStatus(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
-	logger.Info("Updating status",
-		"phase", tfRun.Status.Phase,
-		"activeJobName", tfRun.Status.ActiveJobName,
-		"message", tfRun.Status.Message,
-		"observedGeneration", tfRun.Status.ObservedGeneration)
+	logger.Info("Updating status", "phase", tfRun.Status.Phase, "message", tfRun.Status.Message, "observedGeneration", tfRun.Status.ObservedGeneration)
 	if err := r.Status().Update(ctx, tfRun); err != nil {
-		logger.Error(err, "Failed to update status")
-		return ctrl.Result{RequeueAfter: 2 * time.Second}, err
+		logger.Error(err, "failed to update status")
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, err
 	}
-	logger.V(1).Info("Status updated successfully, requeuing after 5 Minute")
-	// return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
+	logger.V(1).Info("status updated successfully")
 	return ctrl.Result{}, nil
 }
