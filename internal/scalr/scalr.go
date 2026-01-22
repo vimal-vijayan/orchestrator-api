@@ -275,20 +275,25 @@ func (s *Service) CreateScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 		"version", IacVersion,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, "POST", apiUrl, bytes.NewReader(payloadBytes))
+	req, err := s.buildAuthRequest(ctx, tfRun, "POST", apiUrl, bytes.NewReader(payloadBytes))
 	if err != nil {
-		logger.Error(err, "failed to create HTTP request for Scalr workspace")
 		return "", fmt.Errorf(errFormatWithCause, errWorkspaceCreationFailed, err)
 	}
 
-	req.Header.Set("Content-Type", requestHeaderAccept)
-	req.Header.Set("Accept", requestHeaderAccept)
-	token, err := s.GetScalrToken(ctx, tfRun)
-	if err != nil {
-		return "", err
-	}
+	// req, err := http.NewRequestWithContext(ctx, "POST", apiUrl, bytes.NewReader(payloadBytes))
+	// if err != nil {
+	// 	logger.Error(err, "failed to create HTTP request for Scalr workspace")
+	// 	return "", fmt.Errorf(errFormatWithCause, errWorkspaceCreationFailed, err)
+	// }
 
-	req.Header.Set("Authorization", "Bearer "+token)
+	// req.Header.Set("Content-Type", requestHeaderAccept)
+	// req.Header.Set("Accept", requestHeaderAccept)
+	// token, err := s.GetScalrToken(ctx, tfRun)
+	// if err != nil {
+	// 	return "", err
+	// }
+
+	// req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		logger.Error(err, "failed to perform HTTP request for Scalr workspace")
@@ -372,4 +377,29 @@ func (s *Service) DeleteScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 	}
 
 	return nil
+}
+
+// build authentication request
+func (s *Service) buildAuthRequest(ctx context.Context, tfRun *infrav1alpha1.TfRun, method string, url string, body io.Reader) (*http.Request, error) {
+	logger := log.FromContext(ctx)
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		logger.Error(err, "failed to create HTTP request")
+		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
+	}
+
+	token, err := s.GetScalrToken(ctx, tfRun)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", requestHeaderAccept)
+
+	if body != nil {
+		req.Header.Set("Content-Type", requestHeaderAccept)
+	}
+
+	return req, nil
 }
