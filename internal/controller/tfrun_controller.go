@@ -134,11 +134,48 @@ func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
 	}
 
+	if !activeJobRunning && activeJob != nil {
+		// Update status based on completed job
+		return r.updateStatusBasedOnCompletedJob(ctx, tfRun, activeJob)
+	}
+
 	if result, handled, err := r.handlePendingExecution(ctx, tfRun); handled {
 		return result, err
 	}
 
 	return r.handleIntervalRun(ctx, tfRun, currentSpecHash)
+}
+
+func (r *TfRunReconciler) updateStatusBasedOnCompletedJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, job *batchv1.Job) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
+
+	if r.isJobSucceeded(job) {
+		logger.Info("Active job has succeeded", "jobName", job.Name)
+		tfRun.Status.Phase = PhaseSucceeded
+		tfRun.Status.Message = fmt.Sprintf("Job %s succeeded", job.Name)
+		meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
+			Type:               ConditionTypeApplied,
+			Status:             metav1.ConditionTrue,
+			Reason:             "JobSucceeded",
+			Message:            "tfrun job succeeded",
+			ObservedGeneration: tfRun.Generation,
+		})
+	}
+
+	if r.isJobFailed(job) {
+		logger.Info("Active job has failed", "jobName", job.Name)
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("Job %s failed", job.Name)
+		meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
+			Type:               ConditionTypeApplied,
+			Status:             metav1.ConditionFalse,
+			Reason:             "JobFailed",
+			Message:            "tfrun job failed",
+			ObservedGeneration: tfRun.Generation,
+		})
+	}
+
+	return r.updateStatus(ctx, tfRun)
 }
 
 func (r *TfRunReconciler) ensureWorkspaceIfNeeded(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
