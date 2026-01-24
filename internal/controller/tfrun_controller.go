@@ -187,7 +187,26 @@ func (r *TfRunReconciler) ensureWorkspaceIfNeeded(ctx context.Context, tfRun *in
 	}
 
 	if tfRun.Status.WorkspaceID != "" {
-		logger.Info("backend workspace already exists", "workspaceID", tfRun.Status.WorkspaceID)
+		logger.Info("backend workspace status exists", "workspaceID", tfRun.Status.WorkspaceID)
+		logger.V(1).Info("verifying existing workspace remotely")
+		// check if workspace exists remotely
+		be, err := r.getCloudBackend(ctx, tfRun)
+		if err != nil {
+			logger.Error(err, CloudBackendFailed)
+			tfRun.Status.Phase = PhaseFailed
+			tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudBackendFailed, err)
+			tfRun.Status.WorkspaceReady = false
+			return r.updateStatus(ctx, tfRun)
+		}
+		_, err = be.GetWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID)
+		if err != nil {
+			logger.Error(err, "failed to get existing workspace remotely")
+			tfRun.Status.Phase = PhaseFailed
+			tfRun.Status.Message = fmt.Sprintf("failed to get existing workspace remotely: %v", err)
+			tfRun.Status.WorkspaceReady = false
+			return r.updateStatus(ctx, tfRun)
+		}
+		logger.Info("existing workspace verified remotely", "workspaceID", tfRun.Status.WorkspaceID)
 		return ctrl.Result{}, nil
 	}
 
