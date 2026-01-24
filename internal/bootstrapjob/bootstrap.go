@@ -104,8 +104,6 @@ func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun,
 	if tfRun.Spec.Source.Ref != "" {
 		// Clone the repository and then checkout the specific ref
 		// This handles branches, tags, and commit SHAs uniformly
-		// gitCloneCmd = fmt.Sprintf("git clone --depth 1 %s %s && cd %s && git fetch --depth 5 origin %s && git checkout %s",
-		// 	repoURL, workdDir, workdDir, tfRun.Spec.Source.Ref, tfRun.Spec.Source.Ref)
 		gitCloneCmd = fmt.Sprintf("git clone --depth 1 %s %s && cd %s && git fetch --depth 1 origin %s", repoURL, workdDir, workdDir, tfRun.Spec.Source.Ref)
 	} else {
 		// Clone default branch
@@ -114,11 +112,6 @@ func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun,
 
 	job := b.buildJobTemplate(tfRun, jobName, jobType, tfCommand, envVars, gitCloneCmd)
 	logger.Info("Successfully built bootstrap job", "jobName", job.Name)
-
-	// Log the built command for debugging
-	// tofuCmd := fmt.Sprintf("%s %s", tfCommand, strings.Join(envVarsToString(envVars), " "))
-	// logger.V(1).Info("built tofu command", "jobType", jobType, "tofuCmd", tofuCmd)
-
 	return job, nil
 }
 
