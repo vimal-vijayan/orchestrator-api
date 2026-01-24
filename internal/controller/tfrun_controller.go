@@ -81,7 +81,6 @@ type TfRunReconciler struct {
 // 6. Updates status based on Job lifecycle
 // 7. Implements idempotency - does not recreate Jobs unnecessarily ( Based on spec has and Interval )
 // TODO:
-// 2. workspace idempotency handling
 // 3. workspace delete lock handling ( only for cloud backends )
 
 func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -202,6 +201,7 @@ func (r *TfRunReconciler) ensureWorkspaceIfNeeded(ctx context.Context, tfRun *in
 		if err != nil {
 			logger.Error(err, "failed to get existing workspace remotely")
 			tfRun.Status.Phase = PhaseFailed
+			tfRun.Status.WorkspaceID = ""
 			tfRun.Status.Message = fmt.Sprintf("failed to get existing workspace remotely: %v", err)
 			tfRun.Status.WorkspaceReady = false
 			return r.updateStatus(ctx, tfRun)
