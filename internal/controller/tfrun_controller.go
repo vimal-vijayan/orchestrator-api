@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
-	"infra.essity.com/orchstrator-api/internal/bootstrapjob"
+	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
+	"infra.essity.com/orchestrator-api/internal/bootstrapjob"
 )
 
 const (

@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
-	"infra.essity.com/orchstrator-api/internal/backend"
+	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
+	"infra.essity.com/orchestrator-api/internal/backend"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )

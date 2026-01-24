@@ -35,8 +35,8 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
-	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
-	"infra.essity.com/orchstrator-api/internal/controller"
+	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
+	"infra.essity.com/orchestrator-api/internal/controller"
 	// +kubebuilder:scaffold:imports
 )
 

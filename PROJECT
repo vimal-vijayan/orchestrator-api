@@ -6,7 +6,7 @@ domain: essity.com
 layout:
 - go.kubebuilder.io/v4
 projectName: orchestrator-api
-repo: infra.essity.com/orchstrator-api
+repo: infra.essity.com/orchestrator-api
 resources:
 - api:
     crdVersion: v1
@@ -15,6 +15,6 @@ resources:
   domain: essity.com
   group: infra
   kind: TfRun
-  path: infra.essity.com/orchstrator-api/api/v1alpha1
+  path: infra.essity.com/orechstrator-api/api/v1alpha1
   version: v1alpha1
 version: "3"

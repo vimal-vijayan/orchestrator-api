@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
+	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/log"

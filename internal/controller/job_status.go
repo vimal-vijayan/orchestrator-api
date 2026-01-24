@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
+	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
 	batchv1 "k8s.io/api/batch/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
