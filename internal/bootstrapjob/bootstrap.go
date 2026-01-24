@@ -104,11 +104,12 @@ func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun,
 	if tfRun.Spec.Source.Ref != "" {
 		// Clone the repository and then checkout the specific ref
 		// This handles branches, tags, and commit SHAs uniformly
-		gitCloneCmd = fmt.Sprintf("git clone --depth 5 %s %s && cd %s && git fetch --depth 5 origin %s && git checkout %s",
-			repoURL, workdDir, workdDir, tfRun.Spec.Source.Ref, tfRun.Spec.Source.Ref)
+		// gitCloneCmd = fmt.Sprintf("git clone --depth 1 %s %s && cd %s && git fetch --depth 5 origin %s && git checkout %s",
+		// 	repoURL, workdDir, workdDir, tfRun.Spec.Source.Ref, tfRun.Spec.Source.Ref)
+		gitCloneCmd = fmt.Sprintf("git clone --depth 1 %s %s && cd %s && git fetch --depth 1 origin %s", repoURL, workdDir, workdDir, tfRun.Spec.Source.Ref)
 	} else {
 		// Clone default branch
-		gitCloneCmd = fmt.Sprintf("git clone --depth 5 %s %s", repoURL, workdDir)
+		gitCloneCmd = fmt.Sprintf("git clone --depth 1 %s %s", repoURL, workdDir)
 	}
 
 	job := b.buildJobTemplate(tfRun, jobName, jobType, tfCommand, envVars, gitCloneCmd)
