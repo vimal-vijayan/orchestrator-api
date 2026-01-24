@@ -2,8 +2,6 @@ package bootstrapjob
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -13,7 +11,6 @@ import (
 	"infra.essity.com/orchstrator-api/internal/engine"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,6 +33,9 @@ const (
 	// job TTL defaults (in seconds)
 	ttlSuccessDefault = int32(300) // 5 minutes
 	ttlFailureDefault = int32(300) // 5 minutes
+
+
+	tofuImage = "ghcr.io/opentofu/opentofu:latest"
 )
 
 type BuildJobInterface interface {
@@ -118,11 +118,11 @@ func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun,
 func getEngineImage(engineType string) string {
 	switch engineType {
 	case tofuEngine:
-		return "ghcr.io/opentofu/opentofu:latest"
+		return tofuImage
 	case tfEngine:
 		return "hashicorp/terraform:latest"
 	default:
-		return "ghcr.io/opentofu/opentofu:latest"
+		return tofuImage
 	}
 }
 
@@ -227,7 +227,7 @@ func getTfImageVersion(engineType string, tfRun *infrav1alpha1.TfRun) string {
 	case tfEngine:
 		return fmt.Sprintf("hashicorp/terraform:%s", version)
 	default:
-		return "ghcr.io/opentofu/opentofu:latest"
+		return tofuImage
 	}
 }
 
@@ -298,34 +298,6 @@ func (b *BootstrapJob) cloudBackend(tfRun infrav1alpha1.TfRun) ([]corev1.EnvVar,
 // 	return []corev1.EnvVar{}
 // }
 
-// computeSpecHash computes a hash of the TfRun spec to detect changes
-func (b *BootstrapJob) computeSpecHash(tfRun *infrav1alpha1.TfRun) (string, error) {
-	// Create a struct with fields that should trigger a new run
-	hashInput := struct {
-		Module    string
-		Ref       string
-		Path      string
-		Vars      map[string]*apiextensionsv1.JSON
-		Arguments map[string]string
-		Backend   infrav1alpha1.TfBackend
-	}{
-		Module:    tfRun.Spec.Source.Module,
-		Ref:       tfRun.Spec.Source.Ref,
-		Path:      tfRun.Spec.Source.Path,
-		Vars:      tfRun.Spec.Vars,
-		Arguments: tfRun.Spec.Arguments,
-		Backend:   tfRun.Spec.Backend,
-	}
-
-	data, err := json.Marshal(hashInput)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal spec: %w", err)
-	}
-
-	hash := sha256.Sum256(data)
-	hashStr := fmt.Sprintf("%x", hash[:8])
-	return hashStr, nil
-}
 
 func (b *BootstrapJob) getGitCredentials(ctx context.Context, tfRun *infrav1alpha1.TfRun, secretName string) (string, error) {
 	logger := log.FromContext(ctx)
