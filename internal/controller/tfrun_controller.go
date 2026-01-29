@@ -372,7 +372,7 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 		}
 
 		tfRun.Status.ActiveDestroyJobName = jobName
-		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Phase = PhasePending
 		tfRun.Status.Message = fmt.Sprintf("Destroy job %s already exists; waiting", jobName)
 		err = r.Status().Update(ctx, tfRun)
 		if err != nil {
@@ -403,8 +403,9 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 		if apierrors.IsAlreadyExists(err) {
 			logger.Info("destroy job already exists", "jobName", job.Name)
 			tfRun.Status.ActiveDestroyJobName = jobName
-			tfRun.Status.Phase = "Failed"
+			tfRun.Status.Phase = PhasePending
 			tfRun.Status.ObservedGeneration = tfRun.Generation
+			tfRun.Status.Message = fmt.Sprintf("Destroy job %s already exists; waiting", jobName)
 			// wait for destroy job to complete
 			_ = r.Status().Update(ctx, tfRun)
 			return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
@@ -417,7 +418,7 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 
 	logger.Info("destroy job created successfully", "jobName", jobName)
 	tfRun.Status.ActiveDestroyJobName = jobName
-	tfRun.Status.Phase = "Failed"
+	tfRun.Status.Phase = PhasePending
 	tfRun.Status.ObservedGeneration = tfRun.Generation
 	tfRun.Status.Message = fmt.Sprintf("Created destroy Job %s", jobName)
 	err = r.Status().Update(ctx, tfRun)
