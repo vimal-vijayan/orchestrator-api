@@ -26,6 +26,11 @@ import (
 	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
 )
 
+const (
+	unExpectedError = "an unexpected error occurred: %v"
+	sampleModule    = "github.com/example/module"
+)
+
 // TestComputeSpecHash tests the computeSpecHash function
 func TestComputeSpecHash(t *testing.T) {
 	reconciler := &TfRunReconciler{}
@@ -34,7 +39,7 @@ func TestComputeSpecHash(t *testing.T) {
 		tfRun1 := &infrav1alpha1.TfRun{
 			Spec: infrav1alpha1.TfRunSpec{
 				Source: infrav1alpha1.TfSource{
-					Module: "github.com/example/module",
+					Module: sampleModule,
 					Ref:    "main",
 					Path:   "./config",
 				},
@@ -43,12 +48,12 @@ func TestComputeSpecHash(t *testing.T) {
 
 		hash1, err := reconciler.computeSpecHash(tfRun1)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(unExpectedError, err)
 		}
 
 		hash2, err := reconciler.computeSpecHash(tfRun1)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(unExpectedError, err)
 		}
 
 		if hash1 != hash2 {
@@ -75,12 +80,12 @@ func TestComputeSpecHash(t *testing.T) {
 
 		hash1, err := reconciler.computeSpecHash(tfRun1)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(unExpectedError, err)
 		}
 
 		hash2, err := reconciler.computeSpecHash(tfRun2)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(unExpectedError, err)
 		}
 
 		if hash1 == hash2 {
@@ -92,7 +97,7 @@ func TestComputeSpecHash(t *testing.T) {
 		tfRun1 := &infrav1alpha1.TfRun{
 			Spec: infrav1alpha1.TfRunSpec{
 				Source: infrav1alpha1.TfSource{
-					Module: "github.com/example/module",
+					Module: sampleModule,
 				},
 				Vars: map[string]*apiextensionsv1.JSON{
 					"env": {Raw: []byte(`"dev"`)},
@@ -103,7 +108,7 @@ func TestComputeSpecHash(t *testing.T) {
 		tfRun2 := &infrav1alpha1.TfRun{
 			Spec: infrav1alpha1.TfRunSpec{
 				Source: infrav1alpha1.TfSource{
-					Module: "github.com/example/module",
+					Module: sampleModule,
 				},
 				Vars: map[string]*apiextensionsv1.JSON{
 					"env": {Raw: []byte(`"prod"`)},
@@ -113,12 +118,12 @@ func TestComputeSpecHash(t *testing.T) {
 
 		hash1, err := reconciler.computeSpecHash(tfRun1)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(unExpectedError, err)
 		}
 
 		hash2, err := reconciler.computeSpecHash(tfRun2)
 		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+			t.Fatalf(unExpectedError, err)
 		}
 
 		if hash1 == hash2 {
