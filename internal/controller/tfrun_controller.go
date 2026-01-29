@@ -71,17 +71,8 @@ type TfRunReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-//
-// The controller:
-// 1. Ensures finalizer is present for proper cleanup
-// 2. Handle creation and deletion of remote workspaces ( for cloud backends / azure / aws )
-// 3. Handles deletion by creating destroy Jobs
-// 4. Computes spec hash to detect changes
-// 5. Creates and tracks tofu Jobs (init/plan/apply) ( TTL based jobs )
-// 6. Updates status based on Job lifecycle
-// 7. Implements idempotency - does not recreate Jobs unnecessarily ( Based on spec has and Interval )
 // TODO:
-// 3. workspace delete lock handling ( only for cloud backends )
+// 1. workspace delete lock handling ( only for cloud backends )
 
 func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -152,6 +143,8 @@ func (r *TfRunReconciler) updateStatusBasedOnCompletedJob(ctx context.Context, t
 		logger.Info("Active job has succeeded", "jobName", job.Name)
 		tfRun.Status.Phase = PhaseSucceeded
 		tfRun.Status.Message = fmt.Sprintf("Job %s succeeded", job.Name)
+		tfRun.Status.LastRunTime = &metav1.Time{Time: metav1.Now().Time}
+
 		meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
 			Type:               ConditionTypeApplied,
 			Status:             metav1.ConditionTrue,
