@@ -176,7 +176,7 @@ type TfSource struct {
 // +kubebuilder:printcolumn:name="WorkspaceReady",type=boolean,JSONPath=".status.workspaceReady"
 // +kubebuilder:printcolumn:name="Job",type=string,JSONPath=".status.activeJobName",priority=1
 // +kubebuilder:printcolumn:name="LastRun",type=date,JSONPath=".status.lastRunTime"
-// +kubebuilder:printcolumn:name="Message",type=string,JSONPath=".status.message",priority=1
+// +kubebuilder:printcolumn:name="Message",type=string,JSONPath=".status.message"
 //
 // TfRun is the Schema for the tfruns API
 type TfRun struct {

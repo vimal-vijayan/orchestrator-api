@@ -1,8 +1,8 @@
 package engine
 
 import (
-	"infra.essity.com/orchstrator-api/internal/engine/opentofu"
-	"infra.essity.com/orchstrator-api/internal/engine/terraform"
+	"infra.essity.com/orchestrator-api/internal/engine/opentofu"
+	"infra.essity.com/orchestrator-api/internal/engine/terraform"
 )
 
 type Engine interface {

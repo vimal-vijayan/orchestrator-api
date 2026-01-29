@@ -27,7 +27,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
+	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
 )
 
 var _ = Describe("TfRun Controller", func() {

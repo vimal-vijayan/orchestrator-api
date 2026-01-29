@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"infra.essity.com/orchstrator-api/test/utils"
+	"infra.essity.com/orchestrator-api/test/utils"
 )
 
 const namespace = "orchestrator-api-system"

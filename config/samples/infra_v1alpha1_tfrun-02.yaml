@@ -15,7 +15,8 @@ spec:
     version: "1.10.5"
   source:
     module: https://github.com/vimal-vijayan/my-app.git
-    ref: master
+    # ref: refs/tags/v0.0.4
+    ref: refs/heads/master
     credentialsSecretRef: git-credentials
   backend:
     cloud:
@@ -37,3 +38,4 @@ spec:
     another_var1: "another_value"
     another_var2: "another_value"
     another_var3: "another_value"
+    another_var4: "another_value"

@@ -1,4 +1,4 @@
-module infra.essity.com/orchstrator-api
+module infra.essity.com/orchestrator-api
 
 go 1.22.0
 

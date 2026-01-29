@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"infra.essity.com/orchstrator-api/api/v1alpha1"
-	scalr "infra.essity.com/orchstrator-api/internal/scalr"
+	"infra.essity.com/orchestrator-api/api/v1alpha1"
+	scalr "infra.essity.com/orchestrator-api/internal/scalr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 

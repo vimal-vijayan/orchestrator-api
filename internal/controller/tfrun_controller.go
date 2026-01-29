@@ -33,8 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	infrav1alpha1 "infra.essity.com/orchstrator-api/api/v1alpha1"
-	"infra.essity.com/orchstrator-api/internal/bootstrapjob"
+	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
+	"infra.essity.com/orchestrator-api/internal/bootstrapjob"
 )
 
 const (
@@ -71,18 +71,8 @@ type TfRunReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-//
-// The controller:
-// 1. Ensures finalizer is present for proper cleanup
-// 2. Handle creation and deletion of remote workspaces ( for cloud backends / azure / aws )
-// 3. Handles deletion by creating destroy Jobs
-// 4. Computes spec hash to detect changes
-// 5. Creates and tracks tofu Jobs (init/plan/apply) ( TTL based jobs )
-// 6. Updates status based on Job lifecycle
-// 7. Implements idempotency - does not recreate Jobs unnecessarily ( Based on spec has and Interval )
 // TODO:
-// 2. workspace idempotency handling
-// 3. workspace delete lock handling ( only for cloud backends )
+// 1. workspace delete lock handling ( only for cloud backends )
 
 func (r *TfRunReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -153,6 +143,8 @@ func (r *TfRunReconciler) updateStatusBasedOnCompletedJob(ctx context.Context, t
 		logger.Info("Active job has succeeded", "jobName", job.Name)
 		tfRun.Status.Phase = PhaseSucceeded
 		tfRun.Status.Message = fmt.Sprintf("Job %s succeeded", job.Name)
+		tfRun.Status.LastRunTime = &metav1.Time{Time: metav1.Now().Time}
+
 		meta.SetStatusCondition(&tfRun.Status.Conditions, metav1.Condition{
 			Type:               ConditionTypeApplied,
 			Status:             metav1.ConditionTrue,
@@ -187,7 +179,27 @@ func (r *TfRunReconciler) ensureWorkspaceIfNeeded(ctx context.Context, tfRun *in
 	}
 
 	if tfRun.Status.WorkspaceID != "" {
-		logger.Info("backend workspace already exists", "workspaceID", tfRun.Status.WorkspaceID)
+		logger.Info("backend workspace status exists", "workspaceID", tfRun.Status.WorkspaceID)
+		logger.V(1).Info("verifying existing workspace remotely")
+		// check if workspace exists remotely
+		be, err := r.getCloudBackend(ctx, tfRun)
+		if err != nil {
+			logger.Error(err, CloudBackendFailed)
+			tfRun.Status.Phase = PhaseFailed
+			tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudBackendFailed, err)
+			tfRun.Status.WorkspaceReady = false
+			return r.updateStatus(ctx, tfRun)
+		}
+		_, err = be.GetWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID)
+		if err != nil {
+			logger.Error(err, "failed to get existing workspace remotely")
+			tfRun.Status.Phase = PhaseFailed
+			tfRun.Status.WorkspaceID = ""
+			tfRun.Status.Message = fmt.Sprintf("failed to get existing workspace remotely: %v", err)
+			tfRun.Status.WorkspaceReady = false
+			return r.updateStatus(ctx, tfRun)
+		}
+		logger.Info("existing workspace verified remotely", "workspaceID", tfRun.Status.WorkspaceID)
 		return ctrl.Result{}, nil
 	}
 
