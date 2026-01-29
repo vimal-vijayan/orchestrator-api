@@ -11,9 +11,12 @@ import (
 )
 
 const (
-	ProviderScalr = "scalr"
-	// ProviderTerraformCloud is not yet implemented
-	ProviderTerraformCloud = "terraformCloud"
+	BackendScalr = "scalr"
+	// BackendTerraformCloud is not yet implemented
+	BackendTerraformCloud = "terraformCloud"
+	// BackendAzure and BackendS3 are not yet implemented
+	BackendAzure           = "azure"
+	BackendS3              = "s3"
 )
 
 type CloudBackend interface {
@@ -26,14 +29,24 @@ type CloudBackend interface {
 // the controller call this once per TfRun reconciliation to get the backend implementation.
 func ForProvider(k8s client.Client, provider string) (CloudBackend, error) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case ProviderScalr:
+	case BackendScalr:
 		return &ScalrBackend{
 			Scalr: scalr.NewService(k8s),
 		}, nil
 	// Terraform Cloud backend is not yet implemented
-	// case ProviderTerraformCloud:
+	// case BackendTerraformCloud:
 	// 	return &TerraformCloudBackend{
 	// 		// Initialize Terraform Cloud backend service here
+	// 	}, nil
+	// Azure backend is not yet implemented
+	// case BackendAzure:
+	// 	return &AzureBackend{
+	// 		// Initialize Azure backend service here
+	// 	}, nil
+	// S3 backend is not yet implemented
+	// case BackendS3:
+	// 	return &S3Backend{
+	// 		// Initialize S3 backend service here
 	// 	}, nil
 	default:
 		return nil, fmt.Errorf("unsupported cloud backend provider: %s", provider)

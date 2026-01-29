@@ -30,7 +30,7 @@ func (r *TfRunReconciler) getCloudBackend(ctx context.Context, tfRun *infrav1alp
 	provider := tfRun.Spec.Backend.Cloud.Provider
 	if provider == "" {
 		logger.V(1).Info("No cloud backend provider specified, defaulting to 'scalr'")
-		provider = backend.ProviderScalr
+		provider = backend.BackendScalr
 	}
 
 	logger.V(1).Info("Getting cloud backend implementation", "provider", provider)
