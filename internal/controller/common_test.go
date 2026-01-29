@@ -258,10 +258,10 @@ func TestJobStatusScenarios(t *testing.T) {
 	reconciler := &TfRunReconciler{}
 
 	scenarios := []struct {
-		name      string
-		active    int32
-		succeeded int32
-		failed    int32
+		name          string
+		active        int32
+		succeeded     int32
+		failed        int32
 		wantActive    bool
 		wantSucceeded bool
 		wantFailed    bool

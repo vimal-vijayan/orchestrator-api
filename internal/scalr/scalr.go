@@ -92,20 +92,17 @@ type ScalrEnvironmentListResponse struct {
 func (s *Service) GetWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun, workspaceId string, environmentId string) (string, error) {
 	logger := log.FromContext(ctx)
 	backend := tfRun.Spec.Backend.Cloud
-	// apiUrl := fmt.Sprintf("https://%s/api/iacp/v3/workspaces/%s",&backend.Hostname, workspaceId)
+
 	apiUrl := fmt.Sprintf("https://%s/api/iacp/v3/workspaces?filter[environment]=%s&filter[workspace]=%s", backend.Hostname, environmentId, workspaceId)
 	req, err := http.NewRequestWithContext(ctx, "GET", apiUrl, nil)
 	if err != nil {
 		return "", fmt.Errorf(errFormatWithCause, "failed to create HTTP request for Scalr workspace", err)
 	}
 
-	req.Header.Set("Accept", requestHeaderAccept)
-	token, err := s.GetScalrToken(ctx, tfRun)
-	if err != nil {
+	if err := s.setAuthHeaders(ctx, tfRun, req); err != nil {
 		return "", err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		return "", fmt.Errorf(errFormatWithCause, "failed to perform HTTP request for Scalr workspace", err)
@@ -148,14 +145,10 @@ func (s *Service) GetScalrEnvironmentID(ctx context.Context, tfRun *infrav1alpha
 		return "", fmt.Errorf(errFormatWithCause, errGetEnvironmentFailed, err)
 	}
 
-	req.Header.Set("Accept", requestHeaderAccept)
-	token, err := s.GetScalrToken(ctx, tfRun)
-
-	if err != nil {
+	if err := s.setAuthHeaders(ctx, tfRun, req); err != nil {
 		return "", err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		logger.Error(err, "failed to perform HTTP request for Scalr environment")
@@ -280,20 +273,6 @@ func (s *Service) CreateScalrWorkspace(ctx context.Context, tfRun *infrav1alpha1
 		return "", fmt.Errorf(errFormatWithCause, errWorkspaceCreationFailed, err)
 	}
 
-	// req, err := http.NewRequestWithContext(ctx, "POST", apiUrl, bytes.NewReader(payloadBytes))
-	// if err != nil {
-	// 	logger.Error(err, "failed to create HTTP request for Scalr workspace")
-	// 	return "", fmt.Errorf(errFormatWithCause, errWorkspaceCreationFailed, err)
-	// }
-
-	// req.Header.Set("Content-Type", requestHeaderAccept)
-	// req.Header.Set("Accept", requestHeaderAccept)
-	// token, err := s.GetScalrToken(ctx, tfRun)
-	// if err != nil {
-	// 	return "", err
-	// }
-
-	// req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := s.HTTP.Do(req)
 	if err != nil {
 		logger.Error(err, "failed to perform HTTP request for Scalr workspace")
@@ -389,17 +368,26 @@ func (s *Service) buildAuthRequest(ctx context.Context, tfRun *infrav1alpha1.TfR
 		return nil, fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
-	token, err := s.GetScalrToken(ctx, tfRun)
-	if err != nil {
+	if err := s.setAuthHeaders(ctx, tfRun, req); err != nil {
 		return nil, err
 	}
-
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", requestHeaderAccept)
 
 	if body != nil {
 		req.Header.Set("Content-Type", requestHeaderAccept)
 	}
 
 	return req, nil
+}
+
+// set auth headers
+func (s *Service) setAuthHeaders(ctx context.Context, tfRun *infrav1alpha1.TfRun, req *http.Request) error {
+	token, err := s.GetScalrToken(ctx, tfRun)
+
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", requestHeaderAccept)
+	return nil
 }
