@@ -15,8 +15,8 @@ const (
 	// BackendTerraformCloud is not yet implemented
 	BackendTerraformCloud = "terraformCloud"
 	// BackendAzure and BackendS3 are not yet implemented
-	BackendAzure           = "azure"
-	BackendS3              = "s3"
+	BackendAzure = "azure"
+	BackendS3    = "s3"
 )
 
 type CloudBackend interface {

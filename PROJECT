@@ -15,6 +15,10 @@ resources:
   domain: essity.com
   group: infra
   kind: TfRun
-  path: infra.essity.com/orechstrator-api/api/v1alpha1
+  path: infra.essity.com/orchestrator-api/api/v1alpha1
   version: v1alpha1
+  webhooks:
+    defaulting: true
+    validation: true
+    webhookVersion: v1
 version: "3"
