@@ -52,8 +52,9 @@ const (
 	ConditionTypeApplied = "Applied"
 
 	// Job labels
-	jobTypeApply   = "apply"
-	jobTypeDestroy = "destroy"
+	jobTypeApply       = "apply"
+	jobTypeDestroy     = "destroy"
+	jobNotFoundMessage = "active job not found"
 )
 
 // TfRunReconciler reconciles a TfRun object
@@ -167,7 +168,6 @@ func (r *TfRunReconciler) updateStatusBasedOnCompletedJob(ctx context.Context, t
 		})
 	}
 
-	// return r.updateStatus(ctx, tfRun)
 	if err := r.Status().Update(ctx, tfRun); err != nil {
 		logger.Error(err, "failed to update TfRun status after job completion")
 		return ctrl.Result{}, err
@@ -194,7 +194,8 @@ func (r *TfRunReconciler) ensureWorkspaceIfNeeded(ctx context.Context, tfRun *in
 			tfRun.Status.Phase = PhaseFailed
 			tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudBackendFailed, err)
 			tfRun.Status.WorkspaceReady = false
-			return r.updateStatus(ctx, tfRun)
+			r.Status().Update(ctx, tfRun)
+			return ctrl.Result{RequeueAfter: 60 * time.Second}, err
 		}
 		_, err = be.GetWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID)
 		if err != nil {
@@ -203,12 +204,14 @@ func (r *TfRunReconciler) ensureWorkspaceIfNeeded(ctx context.Context, tfRun *in
 			tfRun.Status.WorkspaceID = ""
 			tfRun.Status.Message = fmt.Sprintf("failed to get existing workspace remotely: %v", err)
 			tfRun.Status.WorkspaceReady = false
-			return r.updateStatus(ctx, tfRun)
+			r.Status().Update(ctx, tfRun)
+			return ctrl.Result{RequeueAfter: 60 * time.Second}, err
 		}
 		logger.Info("existing workspace verified remotely", "workspaceID", tfRun.Status.WorkspaceID)
 		return ctrl.Result{}, nil
 	}
 
+	// Create workspace
 	return r.reconcileWorkspace(ctx, tfRun)
 }
 
@@ -512,7 +515,6 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 		logger.Error(err, "failed to create Job")
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("Failed to create Job: %v", err)
-		// return r.updateStatus(ctx, tfRun)
 		_ = r.Status().Update(ctx, tfRun)
 		return ctrl.Result{}, err
 	}
@@ -613,15 +615,6 @@ func (r *TfRunReconciler) handleDestroyJob(ctx context.Context, tfRun *infrav1al
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("destroy job %s has failed", job.Name)
 
-		// if v, ok := tfRun.Annotations["infra.essity.com/force-finalize"]; ok && strings.ToLower(v) == "true" {
-		// 	logger.Info("Force finalize enabled; removing finalizer despite failed destroy")
-		// 	return r.removeFinalizer(ctx, tfRun)
-		// }
-
-		// if tfRun.DeletionTimestamp != nil && time.Since(tfRun.DeletionTimestamp.Time) > 30*time.Minute {
-		// 	logger.Error(fmt.Errorf("destroy failed"), "Timed out waiting for destroy; removing finalizer", "jobName", job.Name)
-		// 	return r.removeFinalizer(ctx, tfRun)
-		// }
 		tfRun.Status.ActiveDestroyJobName = ""
 		_ = r.Status().Update(ctx, tfRun)
 		return ctrl.Result{}, nil

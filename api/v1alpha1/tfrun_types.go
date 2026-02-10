@@ -29,7 +29,6 @@ type TfRunSpec struct {
 	//+kubebuilder:validation:Required
 	ForProvider TfProviderSpec `json:"forProvider"`
 	//+kubebuilder:validation:Optional
-	// RunInterval *metav1.Duration `json:"runInterval,omitempty"`
 	RunInterval *Duration `json:"runInterval,omitempty"`
 	//+kubebuilder:validation:Optional
 	Engine TfEngine `json:"engine"`
@@ -59,9 +58,6 @@ type TfRunStatus struct {
 
 	// ActiveDestroyJobName is the name of the currently running destroy Job
 	ActiveDestroyJobName string `json:"activeDestroyJobName,omitempty"`
-
-	// LastSuccessfulJobName is the name of the last successful Job
-	LastSuccessfulJobName string `json:"lastSuccessfulJobName,omitempty"`
 
 	// WorkspaceID is the Scalr workspace ID created for this TfRun
 	WorkspaceID string `json:"workspaceID,omitempty"`

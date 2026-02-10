@@ -49,6 +49,7 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudBackendFailed, err)
 		tfRun.Status.WorkspaceReady = false
+		//TODO: requeue with backoff?
 		return r.updateStatus(ctx, tfRun)
 	}
 
@@ -64,7 +65,8 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 		logger.Error(err, CloudWorkspaceFailed)
 		tfRun.Status.Phase = PhaseFailed
 		tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudWorkspaceFailed, err)
-		tfRun.Status.WorkspaceReady = false
+		tfRun.Status.WorkspaceReady = false //
+		//TODO: requeue with backoff?
 		return r.updateStatus(ctx, tfRun)
 	}
 
@@ -75,6 +77,7 @@ func (r *TfRunReconciler) reconcileWorkspace(ctx context.Context, tfRun *infrav1
 		tfRun.Status.Message = CloudWorkspacePending
 		tfRun.Status.WorkspaceReady = false
 		tfRun.Status.ObservedGeneration = tfRun.Generation
+		//TODO: requeue with backoff?
 		return r.updateStatus(ctx, tfRun)
 	}
 

@@ -30,10 +30,10 @@ func TestNewTerraform(t *testing.T) {
 
 func TestTerraformCommand(t *testing.T) {
 	tests := []struct {
-		name            string
-		args            []string
-		jobType         string
-		expectContains  []string
+		name             string
+		args             []string
+		jobType          string
+		expectContains   []string
 		expectNotContain []string
 	}{
 		{

@@ -241,8 +241,8 @@ func TestBuildEnvVars(t *testing.T) {
 		tfRun := infrav1alpha1.TfRun{
 			Spec: infrav1alpha1.TfRunSpec{
 				Vars: map[string]*apiextensionsv1.JSON{
-					"valid":   {Raw: []byte(`"value"`)},
-					"nilvar":  nil,
+					"valid":  {Raw: []byte(`"value"`)},
+					"nilvar": nil,
 				},
 			},
 		}
