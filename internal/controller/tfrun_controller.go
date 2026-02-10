@@ -167,7 +167,13 @@ func (r *TfRunReconciler) updateStatusBasedOnCompletedJob(ctx context.Context, t
 		})
 	}
 
-	return r.updateStatus(ctx, tfRun)
+	// return r.updateStatus(ctx, tfRun)
+	if err := r.Status().Update(ctx, tfRun); err != nil {
+		logger.Error(err, "failed to update TfRun status after job completion")
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
 func (r *TfRunReconciler) ensureWorkspaceIfNeeded(ctx context.Context, tfRun *infrav1alpha1.TfRun) (ctrl.Result, error) {
@@ -244,7 +250,7 @@ func (r *TfRunReconciler) handlePendingExecution(ctx context.Context, tfRun *inf
 
 	pendingExists := tfRun.Status.PendingExecHash != "" && tfRun.Status.PendingExecHash != tfRun.Status.LastSpecHash
 	if !pendingExists {
-		return ctrl.Result{}, false, nil
+		return ctrl.Result{Requeue: true}, false, nil
 	}
 
 	execHash := tfRun.Status.PendingExecHash
@@ -262,6 +268,15 @@ func (r *TfRunReconciler) handleIntervalRun(ctx context.Context, tfRun *infrav1a
 			return r.updateStatus(ctx, tfRun)
 		}
 		logger.Info("checking for interval run skipped, no RunInterval configured")
+		tfRun.Status.NextRunTime = nil
+		return ctrl.Result{}, nil
+	}
+
+	if tfRun.Spec.RunInterval.Time.Duration < 45*time.Minute {
+		logger.Error(fmt.Errorf("run interval must be at least 45mins"), "rejecting interval based run", "configuredInterval", tfRun.Spec.RunInterval.Time.Duration)
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("runInterval must be at least 45 minutes, got %v", tfRun.Spec.RunInterval.Time.Duration)
+		_ = r.Status().Update(ctx, tfRun)
 		return ctrl.Result{}, nil
 	}
 
@@ -372,7 +387,7 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 		}
 
 		tfRun.Status.ActiveDestroyJobName = jobName
-		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Phase = PhasePending
 		tfRun.Status.Message = fmt.Sprintf("Destroy job %s already exists; waiting", jobName)
 		err = r.Status().Update(ctx, tfRun)
 		if err != nil {
@@ -403,8 +418,9 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 		if apierrors.IsAlreadyExists(err) {
 			logger.Info("destroy job already exists", "jobName", job.Name)
 			tfRun.Status.ActiveDestroyJobName = jobName
-			tfRun.Status.Phase = "Failed"
+			tfRun.Status.Phase = PhasePending
 			tfRun.Status.ObservedGeneration = tfRun.Generation
+			tfRun.Status.Message = fmt.Sprintf("Destroy job %s already exists; waiting", jobName)
 			// wait for destroy job to complete
 			_ = r.Status().Update(ctx, tfRun)
 			return ctrl.Result{RequeueAfter: 60 * time.Second}, nil
@@ -417,7 +433,7 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 
 	logger.Info("destroy job created successfully", "jobName", jobName)
 	tfRun.Status.ActiveDestroyJobName = jobName
-	tfRun.Status.Phase = "Failed"
+	tfRun.Status.Phase = PhasePending
 	tfRun.Status.ObservedGeneration = tfRun.Generation
 	tfRun.Status.Message = fmt.Sprintf("Created destroy Job %s", jobName)
 	err = r.Status().Update(ctx, tfRun)
