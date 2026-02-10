@@ -26,3 +26,8 @@ go.work
 *.swo
 *~
 CLAUDE.md
+
+# Node modules (for semantic-release)
+node_modules/
+package-lock.json
+package.json
