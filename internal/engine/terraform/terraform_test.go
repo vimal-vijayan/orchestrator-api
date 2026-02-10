@@ -60,6 +60,18 @@ func TestTerraformCommand(t *testing.T) {
 			jobType:        "",
 			expectContains: []string{"terraform init && terraform apply -auto-approve"},
 		},
+		{
+			name:           "apply with custom args",
+			args:           []string{"-no-color", "-input=false"},
+			jobType:        "apply",
+			expectContains: []string{"terraform init", "terraform apply -no-color -input=false"},
+		},
+		{
+			name:           "destroy with custom args",
+			args:           []string{"-no-color", "-input=false"},
+			jobType:        "destroy",
+			expectContains: []string{"terraform init", "terraform destroy -no-color -input=false"},
+		},
 	}
 
 	for _, tt := range tests {

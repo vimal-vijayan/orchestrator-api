@@ -256,84 +256,6 @@ func TestBuildEnvVars(t *testing.T) {
 	})
 }
 
-func TestCloudBackend(t *testing.T) {
-	b := &BootstrapJob{}
-
-	t.Run("builds cloud backend env vars", func(t *testing.T) {
-		tfRun := *newTestTfRun()
-		envVars, err := b.cloudBackend(tfRun)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		envMap := make(map[string]string)
-		secretRefMap := make(map[string]*corev1.SecretKeySelector)
-		for _, env := range envVars {
-			if env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
-				secretRefMap[env.Name] = env.ValueFrom.SecretKeyRef
-			} else {
-				envMap[env.Name] = env.Value
-			}
-		}
-
-		if envMap["TF_CLOUD_HOSTNAME"] != "example.scalr.io" {
-			t.Errorf("expected TF_CLOUD_HOSTNAME=example.scalr.io, got %q", envMap["TF_CLOUD_HOSTNAME"])
-		}
-		if envMap["TF_CLOUD_ORGANIZATION"] != "my-org" {
-			t.Errorf("expected TF_CLOUD_ORGANIZATION=my-org, got %q", envMap["TF_CLOUD_ORGANIZATION"])
-		}
-		if envMap["TF_WORKSPACE"] != "my-workspace" {
-			t.Errorf("expected TF_WORKSPACE=my-workspace, got %q", envMap["TF_WORKSPACE"])
-		}
-
-		// Check token secret reference: hostname dots replaced with underscores
-		tokenKey := "TF_TOKEN_example_scalr_io"
-		secretRef, ok := secretRefMap[tokenKey]
-		if !ok {
-			t.Fatalf("expected secret ref for %s", tokenKey)
-		}
-		if secretRef.Name != "scalr-credentials" {
-			t.Errorf("expected secret name scalr-credentials, got %q", secretRef.Name)
-		}
-		if secretRef.Key != "token" {
-			t.Errorf("expected secret key 'token', got %q", secretRef.Key)
-		}
-	})
-
-	t.Run("no credentials secret ref skips token env var", func(t *testing.T) {
-		tfRun := *newTestTfRun()
-		tfRun.Spec.ForProvider.CredentialsSecretRef = ""
-		envVars, err := b.cloudBackend(tfRun)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		// Should have 3 env vars (hostname, org, workspace) but no token
-		if len(envVars) != 3 {
-			t.Errorf("expected 3 env vars without token, got %d", len(envVars))
-		}
-		for _, env := range envVars {
-			if env.ValueFrom != nil {
-				t.Errorf("did not expect secret ref env var, got %s", env.Name)
-			}
-		}
-	})
-
-	t.Run("nil cloud backend returns error", func(t *testing.T) {
-		tfRun := infrav1alpha1.TfRun{
-			Spec: infrav1alpha1.TfRunSpec{
-				Backend: infrav1alpha1.TfBackend{
-					Cloud: nil,
-				},
-			},
-		}
-		_, err := b.cloudBackend(tfRun)
-		if err == nil {
-			t.Fatal("expected error for nil cloud backend")
-		}
-	})
-}
-
 func TestForEngine(t *testing.T) {
 	scheme := runtime.NewScheme()
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).Build()
@@ -632,7 +554,14 @@ func TestBuildJob(t *testing.T) {
 		}
 		tfRun := newTestTfRun()
 
-		job, err := b.BuildJob(context.Background(), tfRun, "apply", "test-tfrun-apply-abc123")
+		// Pre-build backend env vars (previously computed internally by cloudBackend())
+		backendEnvVars := []corev1.EnvVar{
+			{Name: "TF_CLOUD_HOSTNAME", Value: "example.scalr.io"},
+			{Name: "TF_CLOUD_ORGANIZATION", Value: "my-org"},
+			{Name: "TF_WORKSPACE", Value: "my-workspace"},
+		}
+
+		job, err := b.BuildJob(context.Background(), tfRun, "apply", "test-tfrun-apply-abc123", backendEnvVars)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -641,7 +570,7 @@ func TestBuildJob(t *testing.T) {
 			t.Errorf("expected job name test-tfrun-apply-abc123, got %s", job.Name)
 		}
 
-		// Verify env vars include both TF_VARs and cloud backend vars
+		// Verify env vars include both TF_VARs and backend vars
 		mainContainer := job.Spec.Template.Spec.Containers[0]
 		envNames := make(map[string]bool)
 		for _, env := range mainContainer.Env {
@@ -675,13 +604,13 @@ func TestBuildJob(t *testing.T) {
 		tfRun := newTestTfRun()
 		// The default secret name "git-credentials" will be used but won't be found
 		// This should return an error since the secret doesn't exist
-		_, err := b.BuildJob(context.Background(), tfRun, "apply", "test-job")
+		_, err := b.BuildJob(context.Background(), tfRun, "apply", "test-job", []corev1.EnvVar{})
 		if err == nil {
 			t.Fatal("expected error when git credentials secret not found")
 		}
 	})
 
-	t.Run("returns error when cloud backend is nil", func(t *testing.T) {
+	t.Run("succeeds with no backend env vars", func(t *testing.T) {
 		secret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "git-credentials",
@@ -701,9 +630,17 @@ func TestBuildJob(t *testing.T) {
 		tfRun := newTestTfRun()
 		tfRun.Spec.Backend.Cloud = nil
 
-		_, err := b.BuildJob(context.Background(), tfRun, "apply", "test-job")
-		if err == nil {
-			t.Fatal("expected error for nil cloud backend")
+		job, err := b.BuildJob(context.Background(), tfRun, "apply", "test-job", []corev1.EnvVar{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		// Should only have TF_VAR_* env vars, no backend vars
+		mainContainer := job.Spec.Template.Spec.Containers[0]
+		for _, env := range mainContainer.Env {
+			if env.Name == "TF_CLOUD_HOSTNAME" {
+				t.Error("did not expect TF_CLOUD_HOSTNAME when no backend env vars passed")
+			}
 		}
 	})
 }

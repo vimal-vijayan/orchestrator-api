@@ -7,6 +7,7 @@ import (
 
 	"infra.essity.com/orchestrator-api/api/v1alpha1"
 	scalr "infra.essity.com/orchestrator-api/internal/scalr"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -19,36 +20,40 @@ const (
 	BackendS3    = "s3"
 )
 
-type CloudBackend interface {
-	EnsureWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun) (workspaceID string, err error)
-	DeleteWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun, workspaceID string) error
-	GetWorkspace(ctx context.Context, tfRun *v1alpha1.TfRun, workspaceID string) (string, error)
+// RemoteBackend defines the interface for all remote backend implementations.
+// Cloud backends (Scalr, TFC) manage workspaces; storage backends (S3, Azure)
+// verify bucket/container access.
+type RemoteBackend interface {
+	// EnsureStateTarget ensures the remote state target is ready.
+	// For workspace-based backends, creates/verifies the workspace and returns its ID.
+	// For storage backends, verifies access and returns "".
+	EnsureStateTarget(ctx context.Context, tfRun *v1alpha1.TfRun) (stateTargetID string, err error)
+
+	// DeleteStateTarget cleans up the remote state target on TfRun deletion.
+	// No-op for storage backends.
+	DeleteStateTarget(ctx context.Context, tfRun *v1alpha1.TfRun, stateTargetID string) error
+
+	// GetStateTarget retrieves information about the remote state target.
+	// Returns the verified ID.
+	GetStateTarget(ctx context.Context, tfRun *v1alpha1.TfRun, stateTargetID string) (string, error)
+
+	// BackendEnvVars returns the environment variables needed for terraform/tofu
+	// to connect to this backend. Each implementation owns its own env var logic.
+	BackendEnvVars(tfRun *v1alpha1.TfRun) ([]corev1.EnvVar, error)
+
+	// Type returns the backend type identifier (e.g., "scalr", "s3", "azure").
+	Type() string
 }
 
-// ForProvider returns the appropriate CloudBackend implementation based on the provider string.
-// the controller call this once per TfRun reconciliation to get the backend implementation.
-func ForProvider(k8s client.Client, provider string) (CloudBackend, error) {
+// ForProvider returns the appropriate RemoteBackend implementation based on the provider string.
+// The controller calls this once per TfRun reconciliation to get the backend implementation.
+func ForProvider(k8s client.Client, provider string) (RemoteBackend, error) {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case BackendScalr:
 		return &ScalrBackend{
 			Scalr: scalr.NewService(k8s),
 		}, nil
-	// Terraform Cloud backend is not yet implemented
-	// case BackendTerraformCloud:
-	// 	return &TerraformCloudBackend{
-	// 		// Initialize Terraform Cloud backend service here
-	// 	}, nil
-	// Azure backend is not yet implemented
-	// case BackendAzure:
-	// 	return &AzureBackend{
-	// 		// Initialize Azure backend service here
-	// 	}, nil
-	// S3 backend is not yet implemented
-	// case BackendS3:
-	// 	return &S3Backend{
-	// 		// Initialize S3 backend service here
-	// 	}, nil
 	default:
-		return nil, fmt.Errorf("unsupported cloud backend provider: %s", provider)
+		return nil, fmt.Errorf("unsupported remote backend provider: %s", provider)
 	}
 }

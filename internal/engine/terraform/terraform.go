@@ -16,23 +16,21 @@ type Terraform struct {
 }
 
 func NewTerraform(args []string) *Terraform {
-	extraArgs := &Terraform{
+	if len(args) == 0 {
+		args = []string{"-auto-approve"}
+	}
+
+	return &Terraform{
 		Args: args,
 	}
-
-	if extraArgs.Args == nil {
-		extraArgs.Args = []string{"-auto-approve"}
-	}
-
-	return extraArgs
 }
 
 func (t *Terraform) Command(jobType string) string {
 	var args string
 	var command string
 
-	if t.Args == nil {
-		args = strings.Join(t.Args, "-auto-approve")
+	if t.Args != nil {
+		args = strings.Join(t.Args, " ")
 	}
 
 	switch jobType {

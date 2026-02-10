@@ -188,21 +188,21 @@ func (r *TfRunReconciler) ensureWorkspaceIfNeeded(ctx context.Context, tfRun *in
 		logger.Info("backend workspace status exists", "workspaceID", tfRun.Status.WorkspaceID)
 		logger.V(1).Info("verifying existing workspace remotely")
 		// check if workspace exists remotely
-		be, err := r.getCloudBackend(ctx, tfRun)
+		be, err := r.getRemoteBackend(ctx, tfRun)
 		if err != nil {
-			logger.Error(err, CloudBackendFailed)
+			logger.Error(err, RemoteBackendFailed)
 			tfRun.Status.Phase = PhaseFailed
-			tfRun.Status.Message = fmt.Sprintf("%s: %v", CloudBackendFailed, err)
+			tfRun.Status.Message = fmt.Sprintf("%s: %v", RemoteBackendFailed, err)
 			tfRun.Status.WorkspaceReady = false
 			r.Status().Update(ctx, tfRun)
 			return ctrl.Result{RequeueAfter: 60 * time.Second}, err
 		}
-		_, err = be.GetWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID)
+		_, err = be.GetStateTarget(ctx, tfRun, tfRun.Status.WorkspaceID)
 		if err != nil {
-			logger.Error(err, "failed to get existing workspace remotely")
+			logger.Error(err, "failed to get existing state target remotely")
 			tfRun.Status.Phase = PhaseFailed
 			tfRun.Status.WorkspaceID = ""
-			tfRun.Status.Message = fmt.Sprintf("failed to get existing workspace remotely: %v", err)
+			tfRun.Status.Message = fmt.Sprintf("failed to get existing state target remotely: %v", err)
 			tfRun.Status.WorkspaceReady = false
 			r.Status().Update(ctx, tfRun)
 			return ctrl.Result{RequeueAfter: 60 * time.Second}, err
@@ -363,11 +363,16 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 		return r.handleDestroyJob(ctx, tfRun)
 	}
 
-	logger.Info("creating destroy Job")
 	logger.Info("creating new job for TfRun", "Name", tfRun.Name)
 	destroyJob, err := bootstrapjob.ForEngine(r.Client, strings.ToLower(tfRun.Spec.Engine.Type), []string{})
 	if err != nil {
 		logger.Error(err, "Failed to get engine job builder for destroy")
+		return ctrl.Result{}, err
+	}
+
+	backendEnvVars, err := r.getBackendEnvVars(ctx, tfRun)
+	if err != nil {
+		logger.Error(err, "failed to get backend environment variables for destroy")
 		return ctrl.Result{}, err
 	}
 
@@ -400,7 +405,7 @@ func (r *TfRunReconciler) handleDeletion(ctx context.Context, tfRun *infrav1alph
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
-	job, err := destroyJob.BuildJob(ctx, tfRun, jobTypeDestroy, jobName)
+	job, err := destroyJob.BuildJob(ctx, tfRun, jobTypeDestroy, jobName, backendEnvVars)
 
 	if err != nil {
 		logger.Error(err, "Failed to build destroy job template for tfrun")
@@ -458,9 +463,17 @@ func (r *TfRunReconciler) createNewJob(ctx context.Context, tfRun *infrav1alpha1
 		return ctrl.Result{}, err
 	}
 
+	backendEnvVars, err := r.getBackendEnvVars(ctx, tfRun)
+	if err != nil {
+		logger.Error(err, "failed to get backend environment variables")
+		tfRun.Status.Phase = PhaseFailed
+		tfRun.Status.Message = fmt.Sprintf("failed to get backend env vars: %v", err)
+		return r.updateStatus(ctx, tfRun)
+	}
+
 	runId := BuildRunID(tfRun.Generation, currentSpecHash)
 	jobName := buildJobName(tfRun, runId)
-	job, err := applyJob.BuildJob(ctx, tfRun, jobType, jobName)
+	job, err := applyJob.BuildJob(ctx, tfRun, jobType, jobName, backendEnvVars)
 
 	if err != nil {
 		logger.Error(err, "failed to build job template for tfrun")
@@ -561,19 +574,19 @@ func (r *TfRunReconciler) createJobAndUpdateStatus(ctx context.Context, tfRun *i
 func (r *TfRunReconciler) deleteRemoteWorkspace(ctx context.Context, tfRun *infrav1alpha1.TfRun) error {
 	logger := log.FromContext(ctx)
 
-	be, err := r.getCloudBackend(ctx, tfRun)
+	be, err := r.getRemoteBackend(ctx, tfRun)
 	if err != nil {
-		logger.Error(err, "failed to get cloud backend for workspace cleanup")
+		logger.Error(err, "failed to get remote backend for workspace cleanup")
 		return err
 	}
 
-	err = be.DeleteWorkspace(ctx, tfRun, tfRun.Status.WorkspaceID)
+	err = be.DeleteStateTarget(ctx, tfRun, tfRun.Status.WorkspaceID)
 	if err != nil {
-		logger.Error(err, "failed to delete remote workspace during TfRun deletion")
+		logger.Error(err, "failed to delete remote state target during TfRun deletion")
 		return err
 	}
 
-	logger.Info("remote workspace deleted successfully", "workspaceID", tfRun.Status.WorkspaceID)
+	logger.Info("remote state target deleted successfully", "workspaceID", tfRun.Status.WorkspaceID)
 	return nil
 }
 

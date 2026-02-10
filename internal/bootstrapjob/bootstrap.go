@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 
 	infrav1alpha1 "infra.essity.com/orchestrator-api/api/v1alpha1"
 	"infra.essity.com/orchestrator-api/internal/engine"
@@ -38,21 +37,13 @@ const (
 )
 
 type BuildJobInterface interface {
-	BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string, jobName string) (*batchv1.Job, error)
+	BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string, jobName string, backendEnvVars []corev1.EnvVar) (*batchv1.Job, error)
 }
 
-func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string, jobName string) (*batchv1.Job, error) {
+func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun, jobType string, jobName string, backendEnvVars []corev1.EnvVar) (*batchv1.Job, error) {
 	logger := log.FromContext(ctx)
 	logger.Info("Building bootstrap job", "jobType", jobType)
 
-	// compute a short hash for unique job name
-	// specHash, err := b.computeSpecHash(tfRun)
-	// if err != nil {
-	// 	logger.Error(err, "failed to compute spec hash", "tfRun", tfRun.Name)
-	// 	return nil, fmt.Errorf("failed to compute spec hash: %w", err)
-	// }
-
-	// jobName := fmt.Sprintf("%s-%s-%s", tfRun.Name, jobType, specHash)
 	logger.Info("computed job name", "jobName", jobName)
 
 	// Get the engine command
@@ -60,22 +51,14 @@ func (b *BootstrapJob) BuildJob(ctx context.Context, tfRun *infrav1alpha1.TfRun,
 	tfCommand := tfEngine.Command(jobType)
 
 	// Get engine image
-	// FIXME: make engine image configurable
 	engineImage := getEngineImage(b.EngineType)
 	logger.V(1).Info("using engine image", "engineImage", engineImage)
 
-	// Build variables for the job
-	logger.V(1).Info("building variables as environment variables for", "tfCommand", tfCommand)
+	// Build TF_VAR_* environment variables
 	logger.V(1).Info("building environment variables", "varCount", len(tfRun.Spec.Vars))
 	envVars := append([]corev1.EnvVar{}, b.buildEnvVars(*tfRun)...)
 
-	// add backend configuration as environment variables
-	logger.V(1).Info("building backend configuration as environment variables")
-	backendEnvVars, err := b.cloudBackend(*tfRun)
-	if err != nil {
-		logger.Error(err, "failed to build backend environment variables")
-		return nil, err
-	}
+	// Append backend-specific environment variables (passed in from controller)
 	envVars = append(envVars, backendEnvVars...)
 
 	// Get git credentials
@@ -256,46 +239,6 @@ func (b *BootstrapJob) buildEnvVars(tfRun infrav1alpha1.TfRun) []corev1.EnvVar {
 	}
 	return envVars
 }
-
-func (b *BootstrapJob) cloudBackend(tfRun infrav1alpha1.TfRun) ([]corev1.EnvVar, error) {
-	cloudBackend := tfRun.Spec.Backend.Cloud
-
-	if cloudBackend == nil {
-		return []corev1.EnvVar{}, fmt.Errorf("the cloud backend does not exist")
-	}
-
-	envVars := []corev1.EnvVar{}
-	envVars = append(envVars,
-		corev1.EnvVar{Name: "TF_CLOUD_HOSTNAME", Value: cloudBackend.Hostname},
-		corev1.EnvVar{Name: "TF_CLOUD_ORGANIZATION", Value: cloudBackend.Organization},
-		corev1.EnvVar{Name: "TF_WORKSPACE", Value: cloudBackend.Workspace},
-	)
-
-	// add cloud token from secret
-	if tfRun.Spec.ForProvider.CredentialsSecretRef != "" {
-		envVars = append(envVars, corev1.EnvVar{
-			Name: fmt.Sprintf("TF_TOKEN_%s", strings.ReplaceAll(cloudBackend.Hostname, ".", "_")),
-			ValueFrom: &corev1.EnvVarSource{
-				SecretKeyRef: &corev1.SecretKeySelector{
-					LocalObjectReference: corev1.LocalObjectReference{
-						Name: tfRun.Spec.ForProvider.CredentialsSecretRef,
-					},
-					Key: "token",
-				},
-			},
-		})
-	}
-	return envVars, nil
-}
-
-// THIS IS A PLACEHOLDER FOR FUTURE BACKEND TYPES
-// func (b *BootstrapJob) s3Backend(backend infrav1alpha1.TfBackend) []corev1.EnvVar {
-// 	return []corev1.EnvVar{}
-// }
-
-// func (b *BootstrapJob) storageAccountBackend(backend infrav1alpha1.TfBackend) []corev1.EnvVar {
-// 	return []corev1.EnvVar{}
-// }
 
 func (b *BootstrapJob) getGitCredentials(ctx context.Context, tfRun *infrav1alpha1.TfRun, secretName string) (string, error) {
 	logger := log.FromContext(ctx)
