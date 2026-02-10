@@ -6,8 +6,6 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: tfrun-sample-02
 spec:
-  # runInterval:
-  #   time: 5m
   forProvider:
     credentialsSecretRef: tf-credentials
   engine:
@@ -25,8 +23,6 @@ spec:
       organization: cet-launchpad
       workspace: demo-workspace-11
       agentPoolId: "ap-v0p08qgiq6mohe7ns"
-  arguments:
-    autoApprove: "true"
   vars:
     name: "vimal-doing-test"
     object_example:
